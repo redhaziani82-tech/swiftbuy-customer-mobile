@@ -24,7 +24,6 @@ async function geocodePlace(street, postcode, town, country) {
     `${street}, ${town}, ${countryName}`,
     `${town}, ${countryName}`,
   ].filter(Boolean);
-
   for (const q of queries) {
     try {
       const res = await fetch(`${host}/search?format=json&limit=1&countrycodes=${cc}&q=${encodeURIComponent(q)}`);
@@ -72,9 +71,9 @@ const DEFAULT_SETTINGS = {
 export default function App() {
   const [session, setSession] = useState(null);
   const [guestMode, setGuestMode] = useState(false);
-  const [authMode, setAuthMode] = useState('signin');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
+  const [authMode, setAuthMode] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [authName, setAuthName] = useState('');
   const [authPhone, setAuthPhone] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -112,38 +111,21 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data?.session) {
-        setSession(data.session);
-        const meta = data.session.user?.user_metadata || {};
-        if (meta.full_name || meta.phone) {
-          setSettings((prev) => {
-            const next = {
-              ...prev,
-              customerName: prev.customerName || meta.full_name || '',
-              customerPhone: prev.customerPhone || meta.phone || '',
-            };
-            localStorage.setItem('swiftbuy_customer_settings', JSON.stringify(next));
-            setForm((f) => ({ ...f, customerName: next.customerName, customerPhone: next.customerPhone }));
-            return next;
-          });
-        }
-      }
+      if (data?.session) setSession(data.session);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => listener?.subscription?.unsubscribe();
   }, []);
 
-  const handleAuthSubmit = async (e) => {
+  const handleAuth = async (e) => {
     e.preventDefault();
     setAuthMsg('');
-    if (!authEmail.trim() || !authPassword) return setAuthMsg('Please enter email and password.');
+    if (!email.trim() || !password) return setAuthMsg('Enter your email and password.');
     setAuthLoading(true);
     if (authMode === 'signup') {
       const { data, error } = await supabase.auth.signUp({
-        email: authEmail.trim(),
-        password: authPassword,
+        email: email.trim(),
+        password,
         options: { data: { full_name: authName.trim(), phone: authPhone.trim() } },
       });
       setAuthLoading(false);
@@ -156,24 +138,17 @@ export default function App() {
       localStorage.setItem('swiftbuy_customer_settings', JSON.stringify(next));
       setSettings(next);
       setForm((f) => ({ ...f, customerName: next.customerName, customerPhone: next.customerPhone }));
-      if (data?.session) {
-        setSession(data.session);
-      } else {
-        setAuthMsg('Account created! Please check your email or sign in now.');
-        setAuthMode('signin');
-      }
+      if (data?.session) setSession(data.session);
+      else { setAuthMsg('Account created! Now Log In with your email and password.'); setAuthMode('login'); }
     } else {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: authEmail.trim(),
-        password: authPassword,
-      });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       setAuthLoading(false);
       if (error) return setAuthMsg(error.message);
       if (data?.session) setSession(data.session);
     }
   };
 
-  const handleSignOut = async () => {
+  const handleLogout = async () => {
     await supabase.auth.signOut();
     setSession(null);
     setGuestMode(false);
@@ -232,12 +207,6 @@ export default function App() {
     setTimeout(() => setSavedBanner(false), 2500);
   };
 
-  const clearSettings = () => {
-    localStorage.removeItem('swiftbuy_customer_settings');
-    setSettings(DEFAULT_SETTINGS);
-    setForm((prev) => ({ ...prev, ...DEFAULT_SETTINGS }));
-  };
-
   const placeOrder = async (e) => {
     e.preventDefault();
     if (!form.customerName || !form.customerPhone || !form.storeName || !form.itemsList || !form.streetRoad || !form.townCounty) {
@@ -245,21 +214,14 @@ export default function App() {
     }
     setSubmitting(true);
     const dropCoords = await geocodePlace(form.streetRoad, form.postcode, form.townCounty, form.country);
-    if (!dropCoords) {
-      setSubmitting(false);
-      return alert('Address or Postcode/Eircode not found. Please verify your town & postcode.');
-    }
+    if (!dropCoords) { setSubmitting(false); return alert('Address or Postcode/Eircode not found.'); }
     const storeCoords = (await geocodePlace(form.storeName, '', form.townCounty, form.country)) || dropCoords;
     const dist = calcKm(storeCoords.lat, storeCoords.lng, dropCoords.lat, dropCoords.lng);
-    if (dist > 7) {
-      setSubmitting(false);
-      return alert(`Store to delivery address is ${dist} km (maximum allowed is 7 km).`);
-    }
+    if (dist > 7) { setSubmitting(false); return alert(`Store to delivery address is ${dist} km (max 7 km).`); }
 
     const id = 'ORD-' + Math.floor(1000 + Math.random() * 9000);
     const tip = parseFloat(form.tipAmount || '0');
     const fee = parseFloat(form.deliveryFee || '5') + tip;
-
     const payload = {
       id,
       customer_name: form.customerName.trim(),
@@ -287,7 +249,7 @@ export default function App() {
     if (error) return alert('Error: ' + error.message);
 
     if (settings.soundEnabled) playConfirmChime();
-    setLastOrder({ id, dist, tip, curr, pay: form.paymentMethod });
+    setLastOrder({ id, dist, pay: form.paymentMethod });
     setForm({ ...form, storeName: '', itemsList: '', estimatedGoodsCost: '' });
     loadOrders();
   };
@@ -299,11 +261,7 @@ export default function App() {
   const card = { background: '#161f33', border: '1px solid #26324d', borderRadius: 14, padding: 16, marginBottom: 14 };
   const input = { width: '100%', boxSizing: 'border-box', background: '#0b1120', border: '1px solid #2b3856', borderRadius: 10, padding: '11px 12px', color: '#f8fafc', fontSize: 14, marginBottom: 10 };
   const btn = (bg) => ({ background: bg, color: '#fff', border: 'none', borderRadius: 10, padding: '8px 10px', whiteSpace: 'nowrap', fontWeight: 700, fontSize: 13, cursor: 'pointer' });
-  const PAY_OPTIONS = [
-    { id: 'Card', label: '💳 Card' },
-    { id: 'Cash', label: '💵 Cash' },
-    { id: 'Revolut', label: '🏦 Revolut' },
-  ];
+  const PAY_OPTIONS = [{ id: 'Card', label: '💳 Card' }, { id: 'Cash', label: '💵 Cash' }, { id: 'Revolut', label: '🏦 Revolut' }];
 
   if (!session && !guestMode) {
     return (
@@ -315,24 +273,23 @@ export default function App() {
             <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981', letterSpacing: 0.5 }}>Groceries</div>
           </div>
         </div>
-
         <div style={{ ...card, maxWidth: 420, margin: '0 auto' }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <button type="button" onClick={() => { setAuthMode('signin'); setAuthMsg(''); }} style={{ ...btn(authMode === 'signin' ? '#2563eb' : '#1e293b'), flex: 1, padding: 11 }}>Sign In</button>
+            <button type="button" onClick={() => { setAuthMode('login'); setAuthMsg(''); }} style={{ ...btn(authMode === 'login' ? '#2563eb' : '#1e293b'), flex: 1, padding: 11 }}>Log In</button>
             <button type="button" onClick={() => { setAuthMode('signup'); setAuthMsg(''); }} style={{ ...btn(authMode === 'signup' ? '#10b981' : '#1e293b'), flex: 1, padding: 11 }}>Sign Up</button>
           </div>
           {authMsg && <div style={{ background: '#1e293b', border: '1px solid #38bdf8', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>{authMsg}</div>}
-          <form onSubmit={handleAuthSubmit}>
+          <form onSubmit={handleAuth}>
             {authMode === 'signup' && (
               <>
                 <input style={input} placeholder="Full Name *" value={authName} onChange={(e) => setAuthName(e.target.value)} required />
-                <input style={input} placeholder="Mobile Phone * (e.g. 087 123 4567)" value={authPhone} onChange={(e) => setAuthPhone(e.target.value)} required />
+                <input style={input} placeholder="Mobile Phone *" value={authPhone} onChange={(e) => setAuthPhone(e.target.value)} required />
               </>
             )}
-            <input style={input} type="email" placeholder="Email Address *" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} required />
-            <input style={input} type="password" placeholder="Password * (min 6 chars)" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required />
+            <input style={input} type="email" placeholder="Email *" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input style={input} type="password" placeholder="Password *" value={password} onChange={(e) => setPassword(e.target.value)} required />
             <button disabled={authLoading} type="submit" style={{ ...btn(authMode === 'signup' ? '#10b981' : '#2563eb'), width: '100%', padding: 13, fontSize: 15, marginBottom: 10 }}>
-              {authLoading ? 'Please wait...' : authMode === 'signup' ? 'Create Account' : 'Sign In'}
+              {authLoading ? 'Please wait...' : authMode === 'signup' ? 'Sign Up' : 'Log In'}
             </button>
           </form>
           <button type="button" onClick={() => setGuestMode(true)} style={{ ...btn('#1e293b'), width: '100%', padding: 10, color: '#94a3b8' }}>Continue as Guest</button>
@@ -353,7 +310,7 @@ export default function App() {
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={() => setTab('order')} style={btn(tab === 'order' ? '#10b981' : '#1e293b')}>+ Order</button>
-          <button onClick={() => setTab('orders')} style={btn(tab === 'orders' ? '#2563eb' : '#1e293b')}>My Orders</button>
+          <button onClick={() => setTab('orders')} style={btn(tab === 'orders' ? '#2563eb' : '#1e293b')}>Orders</button>
           <button onClick={() => setTab('settings')} style={btn(tab === 'settings' ? '#8b5cf6' : '#1e293b')}>⚙ Settings</button>
         </div>
       </div>
@@ -367,7 +324,7 @@ export default function App() {
               <option value="UK">🇬🇧 UK (£)</option>
             </select>
           </div>
-          {lastOrder && <div style={{ background: '#064e3b', border: '1px solid #10b981', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>✅ Order <b>{lastOrder.id}</b> placed via <b>{lastOrder.pay}</b>! ({lastOrder.dist} km)</div>}
+          {lastOrder && <div style={{ background: '#064e3b', border: '1px solid #10b981', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>✅ Order <b>{lastOrder.id}</b> placed ({lastOrder.pay})!</div>}
           <form onSubmit={placeOrder}>
             <input style={input} placeholder="Store Name * (e.g. Tesco, Dunnes, Lidl)" value={form.storeName} onChange={(e) => setForm({ ...form, storeName: e.target.value })} />
             <textarea style={{ ...input, minHeight: 74, resize: 'vertical' }} placeholder="Shopping List / Items *" value={form.itemsList} onChange={(e) => setForm({ ...form, itemsList: e.target.value })} />
@@ -382,21 +339,18 @@ export default function App() {
               <input style={input} placeholder="Street / Road *" value={form.streetRoad} onChange={(e) => setForm({ ...form, streetRoad: e.target.value })} />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input style={input} placeholder={form.country === 'UK' ? 'UK Postcode (e.g. BT35 6AA)' : 'Eircode (e.g. A91 P592)'} value={form.postcode} onChange={(e) => setForm({ ...form, postcode: e.target.value })} />
+              <input style={input} placeholder={form.country === 'UK' ? 'UK Postcode' : 'Eircode (e.g. A91 P592)'} value={form.postcode} onChange={(e) => setForm({ ...form, postcode: e.target.value })} />
               <input style={input} placeholder="Town & County *" value={form.townCounty} onChange={(e) => setForm({ ...form, townCounty: e.target.value })} />
             </div>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 6 }}>Payment Option</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {PAY_OPTIONS.map((p) => (
-                  <button key={p.id} type="button" onClick={() => setForm({ ...form, paymentMethod: p.id })} style={{ ...btn(form.paymentMethod === p.id ? '#2563eb' : '#0b1120'), flex: 1, padding: '10px 6px', border: form.paymentMethod === p.id ? '1px solid #38bdf8' : '1px solid #2b3856' }}>
-                    {p.label}
-                  </button>
-                ))}
-              </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              {PAY_OPTIONS.map((p) => (
+                <button key={p.id} type="button" onClick={() => setForm({ ...form, paymentMethod: p.id })} style={{ ...btn(form.paymentMethod === p.id ? '#2563eb' : '#0b1120'), flex: 1, padding: '10px 6px', border: form.paymentMethod === p.id ? '1px solid #38bdf8' : '1px solid #2b3856' }}>
+                  {p.label}
+                </button>
+              ))}
             </div>
             <button disabled={submitting} type="submit" style={{ ...btn('#10b981'), width: '100%', padding: 13, fontSize: 15 }}>
-              {submitting ? 'Calculating Exact GPS Distance...' : `Submit Order • ${form.paymentMethod} (${curr}${(Number(form.deliveryFee || 0) + Number(form.tipAmount || 0)).toFixed(2)})`}
+              {submitting ? 'Calculating GPS Distance...' : `Submit Order • ${form.paymentMethod} (${curr}${(Number(form.deliveryFee || 0) + Number(form.tipAmount || 0)).toFixed(2)})`}
             </button>
           </form>
         </div>
@@ -420,8 +374,8 @@ export default function App() {
 
       {tab === 'settings' && (
         <div style={card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <h2 style={{ margin: 0, fontSize: 18 }}>Customer Settings</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <h2 style={{ margin: 0, fontSize: 18 }}>Settings</h2>
             <span style={{ fontSize: 11, color: '#38bdf8' }}>{session?.user?.email || 'Guest'}</span>
           </div>
           {savedBanner && <div style={{ background: '#064e3b', border: '1px solid #10b981', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>✅ Settings saved!</div>}
@@ -433,11 +387,10 @@ export default function App() {
                 <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ fontSize: 12, color: '#9ca3af' }} />
               </div>
             </div>
-            <label style={{ fontSize: 12, color: '#9ca3af' }}>Default Payment Method</label>
             <select style={input} value={settings.paymentMethod} onChange={(e) => setSettings({ ...settings, paymentMethod: e.target.value })}>
-              <option value="Card">💳 Card / Apple Pay / Google Pay</option>
-              <option value="Cash">💵 Cash on Delivery</option>
-              <option value="Revolut">🏦 Revolut / Instant Transfer</option>
+              <option value="Card">💳 Card</option>
+              <option value="Cash">💵 Cash</option>
+              <option value="Revolut">🏦 Revolut</option>
             </select>
             <select style={input} value={settings.country} onChange={(e) => setSettings({ ...settings, country: e.target.value, townCounty: e.target.value === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth' })}>
               <option value="IE">🇮🇪 Ireland (€ EUR)</option>
@@ -450,17 +403,16 @@ export default function App() {
               <input style={input} placeholder="Default Street / Road" value={settings.streetRoad} onChange={(e) => setSettings({ ...settings, streetRoad: e.target.value })} />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input style={input} placeholder={settings.country === 'UK' ? 'UK Postcode (e.g. BT35 6AA)' : 'Eircode (e.g. A91 P592)'} value={settings.postcode} onChange={(e) => setSettings({ ...settings, postcode: e.target.value })} />
+              <input style={input} placeholder={settings.country === 'UK' ? 'UK Postcode' : 'Eircode (e.g. A91 P592)'} value={settings.postcode} onChange={(e) => setSettings({ ...settings, postcode: e.target.value })} />
               <input style={input} placeholder="Default Town & County" value={settings.townCounty} onChange={(e) => setSettings({ ...settings, townCounty: e.target.value })} />
             </div>
             <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#0b1120', border: '1px solid #2b3856', borderRadius: 10, padding: '11px 12px', marginBottom: 14, fontSize: 13 }}>
-              <span>🔔 Order Confirmation Sound Chimes</span>
+              <span>🔔 Sound Alerts</span>
               <input type="checkbox" checked={settings.soundEnabled} onChange={(e) => setSettings({ ...settings, soundEnabled: e.target.checked })} />
             </label>
-            <button type="submit" style={{ ...btn('#10b981'), width: '100%', padding: 12, fontSize: 14, marginBottom: 10 }}>Save Customer Settings</button>
-            <button type="button" onClick={clearSettings} style={{ ...btn('#334155'), width: '100%', padding: 10, fontSize: 13, marginBottom: 10 }}>Reset Saved Data</button>
-            <button type="button" onClick={handleSignOut} style={{ ...btn('#dc2626'), width: '100%', padding: 10, fontSize: 13 }}>
-              {session ? 'Sign Out' : 'Exit Guest Mode / Sign In'}
+            <button type="submit" style={{ ...btn('#10b981'), width: '100%', padding: 12, fontSize: 14, marginBottom: 10 }}>Save Settings</button>
+            <button type="button" onClick={handleLogout} style={{ ...btn('#dc2626'), width: '100%', padding: 12, fontSize: 14 }}>
+              Log Out
             </button>
           </form>
         </div>

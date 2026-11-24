@@ -31,6 +31,34 @@ const PAY_OPTIONS = [
 
 const TIP_PRESETS = ['0', '2', '5', '10'];
 
+async function searchAddressSuggestions(query, country) {
+  if (!query || query.trim().length < 3) return [];
+  const bias = country === 'UK' ? 'United Kingdom' : 'Ireland';
+  try {
+    const res = await fetch(
+      `https://komoot.io{encodeURIComponent(query + ', ' + bias)}&limit=5`
+    );
+    const data = await res.json();
+    return (data.features || []).map((f) => {
+      const pr = f.properties || {};
+      const street = [pr.housenumber, pr.street || pr.name].filter(Boolean).join(' ');
+      const town = [pr.city || pr.town || pr.village || pr.suburb, pr.county || pr.state].filter(Boolean).join(', ');
+      const postcode = pr.postcode || '';
+      const label = [street, town, postcode].filter(Boolean).join(', ');
+      return {
+        label: label || pr.name || query,
+        street: street || pr.name || '',
+        town: town || '',
+        postcode,
+        lat: f.geometry?.coordinates?.[1],
+        lng: f.geometry?.coordinates?.[0],
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 function calcKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -194,6 +222,35 @@ export default function App() {
     doorNumber: settings.doorNumber, streetRoad: settings.streetRoad, postcode: settings.postcode,
     townCounty: settings.townCounty, paymentMethod: settings.paymentMethod === 'Revolut' ? 'Revolut' : 'Card',
   });
+  const [addrSuggestions, setAddrSuggestions] = useState([]);
+  const [searchingAddr, setSearchingAddr] = useState(false);
+  const addrTimerRef = useRef(null);
+
+  const onStreetType = (val) => {
+    setForm((f) => ({ ...f, streetRoad: val }));
+    if (addrTimerRef.current) clearTimeout(addrTimerRef.current);
+    if (val.trim().length < 3) {
+      setAddrSuggestions([]);
+      return;
+    }
+    setSearchingAddr(true);
+    addrTimerRef.current = setTimeout(async () => {
+      const list = await searchAddressSuggestions(val, form.country);
+      setAddrSuggestions(list);
+      setSearchingAddr(false);
+    }, 350);
+  };
+
+  const pickAddressSuggestion = (s) => {
+    setForm((f) => ({
+      ...f,
+      streetRoad: s.street || f.streetRoad,
+      postcode: s.postcode || f.postcode,
+      townCounty: s.town || f.townCounty,
+    }));
+    setAddrSuggestions([]);
+  };
+
   const headerFileRef = useRef(null);
   const curr = (form.country || settings.country) === 'UK' ? '£' : '€';
 
@@ -454,7 +511,19 @@ export default function App() {
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input style={{ ...input, width: '36%' }} placeholder="Door/Apt" value={form.doorNumber} onChange={(e) => setForm({ ...form, doorNumber: e.target.value })} />
-              <input style={input} placeholder="Street / Road" value={form.streetRoad} onChange={(e) => setForm({ ...form, streetRoad: e.target.value })} required />
+              <div style={{ position: 'relative', flex: 1 }}>
+                <input style={input} placeholder="Start typing street or Eircode..." value={form.streetRoad} onChange={(e) => onStreetType(e.target.value)} required />
+                {(searchingAddr || addrSuggestions.length > 0) && (
+                  <div style={{ position: 'absolute', left: 0, right: 0, top: 44, zIndex: 50, background: '#0f172a', border: '1px solid #38bdf8', borderRadius: 10, boxShadow: '0 10px 25px rgba(0,0,0,0.65)', overflow: 'hidden' }}>
+                    {searchingAddr && <div style={{ padding: '8px 10px', fontSize: 12, color: '#94a3b8' }}>🔍 Searching map addresses...</div>}
+                    {addrSuggestions.map((s, idx) => (
+                      <div key={idx} onClick={() => pickAddressSuggestion(s)} style={{ padding: '9px 10px', fontSize: 12, borderBottom: idx < addrSuggestions.length - 1 ? '1px solid #1e293b' : 'none', cursor: 'pointer', color: '#f8fafc' }}>
+                        📍 {s.label}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input style={input} placeholder={form.country === 'UK' ? 'Postcode' : 'Eircode (e.g. A91 P592)'} value={form.postcode} onChange={(e) => setForm({ ...form, postcode: e.target.value })} />

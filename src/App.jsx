@@ -309,6 +309,10 @@ function EmotionStar({ level, active, size = 48 }) {
   );
 }
 
+
+const AGE_RESTRICTED_REGEX = /\b(cigarette|cigarettes|tobacco|vape|vapes|e-cig|cigar|cigars|rolling papers|alcohol|beer|beers|wine|wines|vodka|whiskey|whisky|rum|gin|tequila|brandy|cider|spirits|liquor|prosecco|champagne|lager|stout|18\+)\b/i;
+const hasAgeRestrictedItems = (text) => AGE_RESTRICTED_REGEX.test(String(text || ""));
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [guestMode, setGuestMode] = useState(false);
@@ -707,6 +711,11 @@ export default function App() {
               </div>
             )}
             <textarea style={{ ...input, minHeight: 54, resize: 'vertical' }} placeholder="Extra grocery notes or list..." value={form.itemsList} onChange={(e) => setForm({ ...form, itemsList: e.target.value })} />
+    {hasAgeRestrictedItems(combinedItemsText) && (
+      <div style={{ background: "rgba(220,38,38,0.16)", border: "1px solid #ef4444", borderRadius: 10, padding: "8px 10px", marginBottom: 8, color: "#fca5a5", fontSize: 12, fontWeight: 700 }}>
+        🔞 18+ Photo ID Required: Your order includes cigarettes, vapes, or alcohol. Please have valid physical Photo ID ready at delivery.
+      </div>
+    )}
             <input style={input} type="number" step="0.01" placeholder={`Estimated Goods Cost (${curr}) — optional`} value={form.estimatedGoodsCost} onChange={(e) => setForm({ ...form, estimatedGoodsCost: e.target.value })} />
 
             <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>3. Delivery Address & Contact</div>

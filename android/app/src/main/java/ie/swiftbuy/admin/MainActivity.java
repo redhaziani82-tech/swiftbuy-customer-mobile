@@ -1,4 +1,4 @@
-package ie.swiftbuy.admin;
+package ie.swiftbuy.customer;
 
 import com.getcapacitor.BridgeActivity;
 

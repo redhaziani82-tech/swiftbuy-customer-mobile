@@ -38,27 +38,27 @@ async function searchAddressSuggestions(query, country) {
   if (q.length < 2) return [];
   const results = [];
   const seen = new Set();
-  const pushItem = (item) => {
+  const add = (item) => {
     if (!item || !item.label || seen.has(item.label)) return;
     seen.add(item.label);
     results.push(item);
   };
 
-  // 1. Photon API (fast, CORS-friendly, no User-Agent block in Android WebView)
   try {
     const bias = country === 'UK' ? '&lat=54.1751&lon=-6.3402' : '&lat=54.0037&lon=-6.4021';
     const suffix = country === 'UK' ? ', UK' : ', Ireland';
     const res = await fetch(`https://komoot.io{encodeURIComponent(q + suffix)}${bias}&limit=6`);
     const data = await res.json();
-    (data.features || []).forEach((f) => {
+    const feats = Array.isArray(data.features) ? data.features : new Array();
+    feats.forEach((f) => {
       const pr = f.properties || {};
-      const coords = (f.geometry && f.geometry.coordinates) || [];
-      const street = [pr.housenumber, pr.street || pr.name].filter(Boolean).join(' ');
-      const town = [pr.city || pr.town || pr.village || pr.suburb, pr.county || pr.state].filter(Boolean).join(', ');
+      const coords = f.geometry && Array.isArray(f.geometry.coordinates) ? f.geometry.coordinates : new Array();
+      const street = new Array(pr.housenumber, pr.street || pr.name).filter(Boolean).join(' ');
+      const town = new Array(pr.city || pr.town || pr.village || pr.suburb, pr.county || pr.state).filter(Boolean).join(', ');
       const postcode = pr.postcode || '';
-      const label = [street, town, postcode].filter(Boolean).join(', ') || pr.name;
+      const label = new Array(street, town, postcode).filter(Boolean).join(', ') || pr.name;
       if (label && coords.length >= 2) {
-        pushItem({
+        add({
           label,
           street: street || pr.name || q,
           town: town || (country === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth'),
@@ -70,27 +70,46 @@ async function searchAddressSuggestions(query, country) {
     });
   } catch {}
 
-  // 2. Fallback to Open-Meteo Geocoding API (works on towns, villages & postcodes)
   if (results.length === 0) {
     try {
-      const cc = country === 'UK' ? 'GB' : 'IE';
-      const res2 = await fetch(`https://open-meteo.com{encodeURIComponent(q)}&count=5&language=en&format=json&countryCode=${cc}`);
+      const cc = country === 'UK' ? 'gb' : 'ie';
+      const res2 = await fetch(`https://openstreetmap.org{cc}&q=${encodeURIComponent(q)}`);
       const data2 = await res2.json();
-      (data2.results || []).forEach((r) => {
-        const town = [r.name, r.admin2 || r.admin1].filter(Boolean).join(', ');
-        pushItem({
-          label: `${town}${r.postcodes?.at(0) ? ', ' + r.postcodes.at(0) : ''}`,
-          street: r.name,
-          town,
-          postcode: r.postcodes?.at(0) || '',
-          lat: Number(r.latitude),
-          lng: Number(r.longitude),
+      if (Array.isArray(data2)) {
+        data2.forEach((item) => {
+          const a = item.address || {};
+          const street = new Array(a.house_number, a.road || a.pedestrian || a.suburb || item.name).filter(Boolean).join(' ');
+          const town = new Array(a.city || a.town || a.village, a.county).filter(Boolean).join(', ');
+          add({
+            label: item.display_name,
+            street: street || item.name || q,
+            town: town || (country === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth'),
+            postcode: a.postcode || '',
+            lat: parseFloat(item.lat),
+            lng: parseFloat(item.lon),
+          });
         });
-      });
+      }
     } catch {}
   }
-
   return results;
+}
+
+async function reverseGeocodePin(lat, lng) {
+  try {
+    const res = await fetch(`https://komoot.io{lng}&lat=${lat}`);
+    const data = await res.json();
+    const f = data.features && data.features.at(0);
+    if (!f) return null;
+    const pr = f.properties || {};
+    return {
+      street: new Array(pr.housenumber, pr.street || pr.name).filter(Boolean).join(' '),
+      town: new Array(pr.city || pr.town || pr.village || pr.suburb, pr.county || pr.state).filter(Boolean).join(', '),
+      postcode: pr.postcode || '',
+    };
+  } catch {
+    return null;
+  }
 }
 
 function calcKm(lat1, lon1, lat2, lon2) {
@@ -313,22 +332,29 @@ export default function App() {
   const [searchingAddr, setSearchingAddr] = useState(false);
   const addrTimerRef = useRef(null);
 
-  const onStreetType = (val) => {
-    setForm((f) => ({ ...f, streetRoad: val }));
-    if (addrTimerRef.current) clearTimeout(addrTimerRef.current);
-    if (val.trim().length < 3) {
-      setAddrSuggestions([]);
+  const runAddrSearch = async (queryText) => {
+    const q = (queryText || '').trim();
+    if (q.length < 2) {
+      setAddrSuggestions(new Array());
+      setSearchingAddr(false);
       return;
     }
     setSearchingAddr(true);
-    addrTimerRef.current = setTimeout(async () => {
-      try {
-        const list = await searchAddressSuggestions(val, form.country);
-        setAddrSuggestions(list);
-      } finally {
-        setSearchingAddr(false);
+    try {
+      const list = await searchAddressSuggestions(q, form.country);
+      setAddrSuggestions(list);
+      if (list.length > 0 && list.at(0).lat && list.at(0).lng) {
+        setPickedCoords({ lat: list.at(0).lat, lng: list.at(0).lng });
       }
-    }, 350);
+    } finally {
+      setSearchingAddr(false);
+    }
+  };
+
+  const onStreetType = (val) => {
+    setForm((f) => ({ ...f, streetRoad: val }));
+    if (addrTimerRef.current) clearTimeout(addrTimerRef.current);
+    addrTimerRef.current = setTimeout(() => runAddrSearch(val), 280);
   };
 
   const pickAddressSuggestion = (s) => {
@@ -339,7 +365,20 @@ export default function App() {
       townCounty: s.town || f.townCounty,
     }));
     if (s.lat && s.lng) setPickedCoords({ lat: s.lat, lng: s.lng });
-    setAddrSuggestions([]);
+    setAddrSuggestions(new Array());
+  };
+
+  const handleMapTapPin = async (c) => {
+    setPickedCoords(c);
+    const rev = await reverseGeocodePin(c.lat, c.lng);
+    if (rev) {
+      setForm((f) => ({
+        ...f,
+        streetRoad: rev.street || f.streetRoad,
+        postcode: rev.postcode || f.postcode,
+        townCounty: rev.town || f.townCounty,
+      }));
+    }
   };
 
   const headerFileRef = useRef(null);
@@ -600,23 +639,30 @@ export default function App() {
               <input style={input} placeholder="Your Name" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} required />
               <input style={input} placeholder="Phone Number" value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: e.target.value })} required />
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input style={{ ...input, width: '36%' }} placeholder="Door/Apt" value={form.doorNumber} onChange={(e) => setForm({ ...form, doorNumber: e.target.value })} />
-              <input style={input} placeholder="Start typing street or area..." value={form.streetRoad} onChange={(e) => onStreetType(e.target.value)} required />
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+              <input style={{ ...input, marginBottom: 0, width: '28%' }} placeholder="Door/Apt" value={form.doorNumber} onChange={(e) => setForm({ ...form, doorNumber: e.target.value })} />
+              <input style={{ ...input, marginBottom: 0, flex: 1 }} placeholder="Start typing street (e.g. Armagh)..." value={form.streetRoad} onChange={(e) => onStreetType(e.target.value)} required />
+              <button type="button" onClick={() => runAddrSearch(form.streetRoad || form.postcode)} style={btn('#2563eb')}>🔍</button>
             </div>
+
             {(searchingAddr || addrSuggestions.length > 0) && (
-              <div style={{ background: '#0f172a', border: '1px solid #38bdf8', borderRadius: 10, marginBottom: 10, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: '#1e293b', fontSize: 11, color: '#38bdf8', fontWeight: 700 }}>
-                  <span>{searchingAddr ? '🔍 Searching real map addresses...' : '📍 Tap your address to auto-fill'}</span>
-                  <button type="button" onClick={() => setAddrSuggestions([])} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+              <div style={{ background: '#0f172a', border: '2px solid #38bdf8', borderRadius: 12, marginBottom: 10, overflow: 'hidden', boxShadow: '0 8px 20px rgba(0,0,0,0.6)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px', background: '#1e293b', fontSize: 11, color: '#38bdf8', fontWeight: 700 }}>
+                  <span>{searchingAddr ? '🔍 Searching real map addresses...' : `📍 Tap your address (${addrSuggestions.length} found)`}</span>
+                  <button type="button" onClick={() => setAddrSuggestions(new Array())} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontWeight: 700 }}>✕</button>
                 </div>
                 {addrSuggestions.map((s, idx) => (
-                  <div key={idx} onClick={() => pickAddressSuggestion(s)} style={{ padding: '10px', fontSize: 12, borderBottom: idx < addrSuggestions.length - 1 ? '1px solid #1e293b' : 'none', cursor: 'pointer', color: '#f8fafc', lineHeight: 1.35 }}>
+                  <div
+                    key={idx}
+                    onClick={() => pickAddressSuggestion(s)}
+                    style={{ padding: '10px 12px', fontSize: 13, borderBottom: idx < addrSuggestions.length - 1 ? '1px solid #1e293b' : 'none', cursor: 'pointer', color: '#f8fafc', background: '#0f172a', lineHeight: 1.35 }}
+                  >
                     📍 {s.label}
                   </div>
                 ))}
               </div>
             )}
+
             <div style={{ display: 'flex', gap: 8 }}>
               <input
                 style={input}
@@ -630,7 +676,7 @@ export default function App() {
               />
               <input style={input} placeholder="Town & County" value={form.townCounty} onChange={(e) => setForm({ ...form, townCounty: e.target.value })} required />
             </div>
-            <DeliveryPinMap coords={pickedCoords} onPickCoords={(c) => setPickedCoords(c)} />
+            <DeliveryPinMap coords={pickedCoords} onPickCoords={handleMapTapPin} />
 
             <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>4. Driver Tip ({curr})</div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>

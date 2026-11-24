@@ -1,3 +1,5 @@
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 
@@ -33,51 +35,62 @@ const TIP_PRESETS = ['0', '2', '5', '10'];
 
 async function searchAddressSuggestions(query, country) {
   const q = (query || '').trim();
-  if (q.length < 3) return [];
-  const cc = country === 'UK' ? 'gb' : 'ie';
+  if (q.length < 2) return [];
+  const results = [];
+  const seen = new Set();
+  const pushItem = (item) => {
+    if (!item || !item.label || seen.has(item.label)) return;
+    seen.add(item.label);
+    results.push(item);
+  };
+
+  // 1. Photon API (fast, CORS-friendly, no User-Agent block in Android WebView)
   try {
-    const url = `https://openstreetmap.org{cc}&q=${encodeURIComponent(q)}`;
-    const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+    const bias = country === 'UK' ? '&lat=54.1751&lon=-6.3402' : '&lat=54.0037&lon=-6.4021';
+    const suffix = country === 'UK' ? ', UK' : ', Ireland';
+    const res = await fetch(`https://komoot.io{encodeURIComponent(q + suffix)}${bias}&limit=6`);
     const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
-      return data.map((item) => {
-        const a = item.address || {};
-        const street = [a.house_number, a.road || a.pedestrian || a.suburb || a.neighbourhood || item.name].filter(Boolean).join(' ');
-        const town = [a.city || a.town || a.village || a.municipality, a.county || a.state_district].filter(Boolean).join(', ');
-        const postcode = a.postcode || '';
-        return {
-          label: item.display_name,
-          street: street || item.name || q,
-          town: town || (country === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth'),
-          postcode,
-          lat: parseFloat(item.lat),
-          lng: parseFloat(item.lon),
-        };
-      });
-    }
-  } catch {}
-  try {
-    const bias = country === 'UK' ? 'United Kingdom' : 'Ireland';
-    const res2 = await fetch(`https://komoot.io{encodeURIComponent(q + ', ' + bias)}&limit=5`);
-    const data2 = await res2.json();
-    return (data2.features || []).map((f) => {
+    (data.features || []).forEach((f) => {
       const pr = f.properties || {};
       const coords = (f.geometry && f.geometry.coordinates) || [];
       const street = [pr.housenumber, pr.street || pr.name].filter(Boolean).join(' ');
       const town = [pr.city || pr.town || pr.village || pr.suburb, pr.county || pr.state].filter(Boolean).join(', ');
       const postcode = pr.postcode || '';
-      return {
-        label: [street, town, postcode].filter(Boolean).join(', ') || pr.name || q,
-        street: street || pr.name || q,
-        town: town || '',
-        postcode,
-        lat: Number(coords.at(1)),
-        lng: Number(coords.at(0)),
-      };
+      const label = [street, town, postcode].filter(Boolean).join(', ') || pr.name;
+      if (label && coords.length >= 2) {
+        pushItem({
+          label,
+          street: street || pr.name || q,
+          town: town || (country === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth'),
+          postcode,
+          lat: Number(coords.at(1)),
+          lng: Number(coords.at(0)),
+        });
+      }
     });
-  } catch {
-    return [];
+  } catch {}
+
+  // 2. Fallback to Open-Meteo Geocoding API (works on towns, villages & postcodes)
+  if (results.length === 0) {
+    try {
+      const cc = country === 'UK' ? 'GB' : 'IE';
+      const res2 = await fetch(`https://open-meteo.com{encodeURIComponent(q)}&count=5&language=en&format=json&countryCode=${cc}`);
+      const data2 = await res2.json();
+      (data2.results || []).forEach((r) => {
+        const town = [r.name, r.admin2 || r.admin1].filter(Boolean).join(', ');
+        pushItem({
+          label: `${town}${r.postcodes?.at(0) ? ', ' + r.postcodes.at(0) : ''}`,
+          street: r.name,
+          town,
+          postcode: r.postcodes?.at(0) || '',
+          lat: Number(r.latitude),
+          lng: Number(r.longitude),
+        });
+      });
+    } catch {}
   }
+
+  return results;
 }
 
 function calcKm(lat1, lon1, lat2, lon2) {
@@ -150,10 +163,9 @@ function LiveDriverMap({ driver }) {
   const badge = getVehicleBadge(driver?.vehicle_type || driver?.vehicle);
 
   useEffect(() => {
-    if (!mapElRef.current || !window.L || mapObjRef.current) return;
-    const L = window.L;
+    if (!mapElRef.current || mapObjRef.current) return;
     const map = L.map(mapElRef.current, { zoomControl: false }).setView([lat, lng], 15);
-    L.tileLayer('https://{s}://{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap',
       maxZoom: 19,
     }).addTo(map);
@@ -167,8 +179,7 @@ function LiveDriverMap({ driver }) {
 
   useEffect(() => {
     const map = mapObjRef.current;
-    const L = window.L;
-    if (!map || !L) return;
+    if (!map) return;
     const icon = L.divIcon({
       className: 'sb-driver-pin',
       html: `<div style="background:#0f172a;border:2px solid #10b981;border-radius:50%;width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:21px;box-shadow:0 0 14px rgba(16,185,129,0.75);">${badge.emoji}</div>`,
@@ -194,6 +205,60 @@ function LiveDriverMap({ driver }) {
     </div>
   );
 }
+function DeliveryPinMap({ coords, onPickCoords }) {
+  const boxRef = useRef(null);
+  const mapRef = useRef(null);
+  const pinRef = useRef(null);
+  const lat = coords?.lat || 54.0037;
+  const lng = coords?.lng || -6.4021;
+
+  useEffect(() => {
+    if (!boxRef.current || mapRef.current) return;
+    const map = L.map(boxRef.current, { zoomControl: false }).setView([lat, lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(map);
+    const icon = L.divIcon({
+      className: 'sb-drop-pin',
+      html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.7));">📍</div>',
+      iconSize: new Array(28, 28),
+      iconAnchor: new Array(14, 28),
+    });
+    const marker = L.marker([lat, lng], { icon }).addTo(map);
+    map.on('click', (e) => {
+      marker.setLatLng(e.latlng);
+      onPickCoords({ lat: e.latlng.lat, lng: e.latlng.lng });
+    });
+    mapRef.current = map;
+    pinRef.current = marker;
+    setTimeout(() => { try { map.invalidateSize(); } catch {} }, 250);
+    return () => {
+      try { map.remove(); } catch {}
+      mapRef.current = null;
+      pinRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mapRef.current && pinRef.current && coords?.lat && coords?.lng) {
+      pinRef.current.setLatLng([coords.lat, coords.lng]);
+      mapRef.current.setView([coords.lat, coords.lng], 16);
+      setTimeout(() => { try { mapRef.current.invalidateSize(); } catch {} }, 150);
+    }
+  }, [coords?.lat, coords?.lng]);
+
+  return (
+    <div style={{ marginBottom: 10, borderRadius: 10, overflow: 'hidden', border: '1px solid #2b3856' }}>
+      <div style={{ background: '#0b1120', padding: '5px 10px', fontSize: 11, color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
+        <span>🗺️ Delivery Map Pin (Tap map to adjust exact house)</span>
+        {coords && <span style={{ color: '#10b981', fontWeight: 700 }}>✓ GPS Locked</span>}
+      </div>
+      <div ref={boxRef} style={{ width: '100%', height: 145, background: '#0f172a' }} />
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [guestMode, setGuestMode] = useState(false);
@@ -565,6 +630,7 @@ export default function App() {
               />
               <input style={input} placeholder="Town & County" value={form.townCounty} onChange={(e) => setForm({ ...form, townCounty: e.target.value })} required />
             </div>
+            <DeliveryPinMap coords={pickedCoords} onPickCoords={(c) => setPickedCoords(c)} />
 
             <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>4. Driver Tip ({curr})</div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>

@@ -32,26 +32,47 @@ const PAY_OPTIONS = [
 const TIP_PRESETS = ['0', '2', '5', '10'];
 
 async function searchAddressSuggestions(query, country) {
-  if (!query || query.trim().length < 3) return [];
-  const bias = country === 'UK' ? 'United Kingdom' : 'Ireland';
+  const q = (query || '').trim();
+  if (q.length < 3) return [];
+  const cc = country === 'UK' ? 'gb' : 'ie';
   try {
-    const res = await fetch(
-      `https://komoot.io{encodeURIComponent(query + ', ' + bias)}&limit=5`
-    );
+    const url = `https://openstreetmap.org{cc}&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
     const data = await res.json();
-    return (data.features || []).map((f) => {
+    if (Array.isArray(data) && data.length > 0) {
+      return data.map((item) => {
+        const a = item.address || {};
+        const street = [a.house_number, a.road || a.pedestrian || a.suburb || a.neighbourhood || item.name].filter(Boolean).join(' ');
+        const town = [a.city || a.town || a.village || a.municipality, a.county || a.state_district].filter(Boolean).join(', ');
+        const postcode = a.postcode || '';
+        return {
+          label: item.display_name,
+          street: street || item.name || q,
+          town: town || (country === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth'),
+          postcode,
+          lat: parseFloat(item.lat),
+          lng: parseFloat(item.lon),
+        };
+      });
+    }
+  } catch {}
+  try {
+    const bias = country === 'UK' ? 'United Kingdom' : 'Ireland';
+    const res2 = await fetch(`https://komoot.io{encodeURIComponent(q + ', ' + bias)}&limit=5`);
+    const data2 = await res2.json();
+    return (data2.features || []).map((f) => {
       const pr = f.properties || {};
+      const coords = (f.geometry && f.geometry.coordinates) || [];
       const street = [pr.housenumber, pr.street || pr.name].filter(Boolean).join(' ');
       const town = [pr.city || pr.town || pr.village || pr.suburb, pr.county || pr.state].filter(Boolean).join(', ');
       const postcode = pr.postcode || '';
-      const label = [street, town, postcode].filter(Boolean).join(', ');
       return {
-        label: label || pr.name || query,
-        street: street || pr.name || '',
+        label: [street, town, postcode].filter(Boolean).join(', ') || pr.name || q,
+        street: street || pr.name || q,
         town: town || '',
         postcode,
-        lat: f.geometry?.coordinates?.[1],
-        lng: f.geometry?.coordinates?.[0],
+        lat: Number(coords.at(1)),
+        lng: Number(coords.at(0)),
       };
     });
   } catch {
@@ -223,6 +244,7 @@ export default function App() {
     townCounty: settings.townCounty, paymentMethod: settings.paymentMethod === 'Revolut' ? 'Revolut' : 'Card',
   });
   const [addrSuggestions, setAddrSuggestions] = useState([]);
+  const [pickedCoords, setPickedCoords] = useState(null);
   const [searchingAddr, setSearchingAddr] = useState(false);
   const addrTimerRef = useRef(null);
 
@@ -235,9 +257,12 @@ export default function App() {
     }
     setSearchingAddr(true);
     addrTimerRef.current = setTimeout(async () => {
-      const list = await searchAddressSuggestions(val, form.country);
-      setAddrSuggestions(list);
-      setSearchingAddr(false);
+      try {
+        const list = await searchAddressSuggestions(val, form.country);
+        setAddrSuggestions(list);
+      } finally {
+        setSearchingAddr(false);
+      }
     }, 350);
   };
 
@@ -248,6 +273,7 @@ export default function App() {
       postcode: s.postcode || f.postcode,
       townCounty: s.town || f.townCounty,
     }));
+    if (s.lat && s.lng) setPickedCoords({ lat: s.lat, lng: s.lng });
     setAddrSuggestions([]);
   };
 
@@ -367,7 +393,7 @@ export default function App() {
       return alert('Please choose a Shop, add Grocery Items, and fill in Name, Phone, Street, and Town/County.');
     }
     setSubmitting(true);
-    const dropCoords = await geocodePlace(form.streetRoad, form.postcode, form.townCounty, form.country);
+    const dropCoords = pickedCoords || (await geocodePlace(form.streetRoad, form.postcode, form.townCounty, form.country));
     if (!dropCoords) { setSubmitting(false); return alert('Address or Postcode/Eircode not found.'); }
     const storeCoords = (await geocodePlace(activeStoreName, '', form.townCounty, form.country)) || dropCoords;
     const dist = calcKm(storeCoords.lat, storeCoords.lng, dropCoords.lat, dropCoords.lng);
@@ -511,22 +537,32 @@ export default function App() {
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input style={{ ...input, width: '36%' }} placeholder="Door/Apt" value={form.doorNumber} onChange={(e) => setForm({ ...form, doorNumber: e.target.value })} />
-              <div style={{ position: 'relative', flex: 1 }}>
-                <input style={input} placeholder="Start typing street or Eircode..." value={form.streetRoad} onChange={(e) => onStreetType(e.target.value)} required />
-                {(searchingAddr || addrSuggestions.length > 0) && (
-                  <div style={{ position: 'absolute', left: 0, right: 0, top: 44, zIndex: 50, background: '#0f172a', border: '1px solid #38bdf8', borderRadius: 10, boxShadow: '0 10px 25px rgba(0,0,0,0.65)', overflow: 'hidden' }}>
-                    {searchingAddr && <div style={{ padding: '8px 10px', fontSize: 12, color: '#94a3b8' }}>🔍 Searching map addresses...</div>}
-                    {addrSuggestions.map((s, idx) => (
-                      <div key={idx} onClick={() => pickAddressSuggestion(s)} style={{ padding: '9px 10px', fontSize: 12, borderBottom: idx < addrSuggestions.length - 1 ? '1px solid #1e293b' : 'none', cursor: 'pointer', color: '#f8fafc' }}>
-                        📍 {s.label}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <input style={input} placeholder="Start typing street or area..." value={form.streetRoad} onChange={(e) => onStreetType(e.target.value)} required />
             </div>
+            {(searchingAddr || addrSuggestions.length > 0) && (
+              <div style={{ background: '#0f172a', border: '1px solid #38bdf8', borderRadius: 10, marginBottom: 10, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: '#1e293b', fontSize: 11, color: '#38bdf8', fontWeight: 700 }}>
+                  <span>{searchingAddr ? '🔍 Searching real map addresses...' : '📍 Tap your address to auto-fill'}</span>
+                  <button type="button" onClick={() => setAddrSuggestions([])} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontWeight: 700 }}>✕</button>
+                </div>
+                {addrSuggestions.map((s, idx) => (
+                  <div key={idx} onClick={() => pickAddressSuggestion(s)} style={{ padding: '10px', fontSize: 12, borderBottom: idx < addrSuggestions.length - 1 ? '1px solid #1e293b' : 'none', cursor: 'pointer', color: '#f8fafc', lineHeight: 1.35 }}>
+                    📍 {s.label}
+                  </div>
+                ))}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
-              <input style={input} placeholder={form.country === 'UK' ? 'Postcode' : 'Eircode (e.g. A91 P592)'} value={form.postcode} onChange={(e) => setForm({ ...form, postcode: e.target.value })} />
+              <input
+                style={input}
+                placeholder={form.country === 'UK' ? 'Postcode' : 'Eircode (e.g. A91 P592)'}
+                value={form.postcode}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setForm({ ...form, postcode: v });
+                  if (v.trim().length >= 3) onStreetType(v);
+                }}
+              />
               <input style={input} placeholder="Town & County" value={form.townCounty} onChange={(e) => setForm({ ...form, townCounty: e.target.value })} required />
             </div>
 

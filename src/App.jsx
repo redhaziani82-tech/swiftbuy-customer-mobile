@@ -16,10 +16,7 @@ function calcKm(lat1, lon1, lat2, lon2) {
 async function geocodePlace(street, postcode, town, country) {
   const host = 'https://openstreetmap.org';
   const cleanPin = (postcode || '').trim().toUpperCase().replace(/\s+/g, '');
-  const spacedPin =
-    cleanPin.length > 4
-      ? `${cleanPin.slice(0, -3)} ${cleanPin.slice(-3)}`
-      : cleanPin;
+  const spacedPin = cleanPin.length > 4 ? `${cleanPin.slice(0, -3)} ${cleanPin.slice(-3)}` : cleanPin;
   const countryName = country === 'UK' ? 'United Kingdom' : 'Ireland';
   const cc = country === 'UK' ? 'gb' : 'ie';
   const queries = [
@@ -30,9 +27,7 @@ async function geocodePlace(street, postcode, town, country) {
 
   for (const q of queries) {
     try {
-      const res = await fetch(
-        `${host}/search?format=json&limit=1&countrycodes=${cc}&q=${encodeURIComponent(q)}`
-      );
+      const res = await fetch(`${host}/search?format=json&limit=1&countrycodes=${cc}&q=${encodeURIComponent(q)}`);
       const data = await res.json();
       const hit = Array.isArray(data) ? data.find(Boolean) : null;
       if (hit) return { lat: parseFloat(hit.lat), lng: parseFloat(hit.lon) };
@@ -69,11 +64,22 @@ const DEFAULT_SETTINGS = {
   streetRoad: '',
   postcode: '',
   townCounty: 'Dundalk, Co. Louth',
+  paymentMethod: 'Card',
   customerPhoto: '',
   soundEnabled: true,
 };
 
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [guestMode, setGuestMode] = useState(false);
+  const [authMode, setAuthMode] = useState('signin');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authMsg, setAuthMsg] = useState('');
+
   const [tab, setTab] = useState('order');
   const [settings, setSettings] = useState(() => {
     try {
@@ -101,16 +107,83 @@ export default function App() {
     streetRoad: settings.streetRoad,
     postcode: settings.postcode,
     townCounty: settings.townCounty,
+    paymentMethod: settings.paymentMethod || 'Card',
   }));
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data?.session) {
+        setSession(data.session);
+        const meta = data.session.user?.user_metadata || {};
+        if (meta.full_name || meta.phone) {
+          setSettings((prev) => {
+            const next = {
+              ...prev,
+              customerName: prev.customerName || meta.full_name || '',
+              customerPhone: prev.customerPhone || meta.phone || '',
+            };
+            localStorage.setItem('swiftbuy_customer_settings', JSON.stringify(next));
+            setForm((f) => ({ ...f, customerName: next.customerName, customerPhone: next.customerPhone }));
+            return next;
+          });
+        }
+      }
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener?.subscription?.unsubscribe();
+  }, []);
+
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthMsg('');
+    if (!authEmail.trim() || !authPassword) return setAuthMsg('Please enter email and password.');
+    setAuthLoading(true);
+    if (authMode === 'signup') {
+      const { data, error } = await supabase.auth.signUp({
+        email: authEmail.trim(),
+        password: authPassword,
+        options: { data: { full_name: authName.trim(), phone: authPhone.trim() } },
+      });
+      setAuthLoading(false);
+      if (error) return setAuthMsg(error.message);
+      const next = {
+        ...settings,
+        customerName: authName.trim() || settings.customerName,
+        customerPhone: authPhone.trim() || settings.customerPhone,
+      };
+      localStorage.setItem('swiftbuy_customer_settings', JSON.stringify(next));
+      setSettings(next);
+      setForm((f) => ({ ...f, customerName: next.customerName, customerPhone: next.customerPhone }));
+      if (data?.session) {
+        setSession(data.session);
+      } else {
+        setAuthMsg('Account created! Please check your email or sign in now.');
+        setAuthMode('signin');
+      }
+    } else {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: authEmail.trim(),
+        password: authPassword,
+      });
+      setAuthLoading(false);
+      if (error) return setAuthMsg(error.message);
+      if (data?.session) setSession(data.session);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setGuestMode(false);
+    setTab('order');
+  };
 
   const curr = form.country === 'UK' ? '£' : '€';
 
   const loadOrders = async () => {
-    const { data } = await supabase
-      .from('orders')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(30);
+    const { data } = await supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(30);
     if (data) setOrders(data);
   };
 
@@ -133,10 +206,7 @@ export default function App() {
         canvas.width = img.width * scale;
         canvas.height = img.height * scale;
         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        setSettings((prev) => ({
-          ...prev,
-          customerPhoto: canvas.toDataURL('image/jpeg', 0.8),
-        }));
+        setSettings((prev) => ({ ...prev, customerPhoto: canvas.toDataURL('image/jpeg', 0.8) }));
       };
       img.src = reader.result;
     };
@@ -155,6 +225,7 @@ export default function App() {
       streetRoad: settings.streetRoad,
       postcode: settings.postcode,
       townCounty: settings.townCounty,
+      paymentMethod: settings.paymentMethod,
     }));
     if (settings.soundEnabled) playConfirmChime();
     setSavedBanner(true);
@@ -194,7 +265,7 @@ export default function App() {
       customer_name: form.customerName.trim(),
       customer_phone: form.customerPhone.trim(),
       store_name: form.storeName.trim(),
-      items_list: form.itemsList.trim(),
+      items_list: `${form.itemsList.trim()} [Pay: ${form.paymentMethod}]`,
       estimated_goods_cost: parseFloat(form.estimatedGoodsCost || '0'),
       delivery_fee: fee,
       tip_amount: tip,
@@ -216,7 +287,7 @@ export default function App() {
     if (error) return alert('Error: ' + error.message);
 
     if (settings.soundEnabled) playConfirmChime();
-    setLastOrder({ id, dist, tip, curr });
+    setLastOrder({ id, dist, tip, curr, pay: form.paymentMethod });
     setForm({ ...form, storeName: '', itemsList: '', estimatedGoodsCost: '' });
     loadOrders();
   };
@@ -228,13 +299,57 @@ export default function App() {
   const card = { background: '#161f33', border: '1px solid #26324d', borderRadius: 14, padding: 16, marginBottom: 14 };
   const input = { width: '100%', boxSizing: 'border-box', background: '#0b1120', border: '1px solid #2b3856', borderRadius: 10, padding: '11px 12px', color: '#f8fafc', fontSize: 14, marginBottom: 10 };
   const btn = (bg) => ({ background: bg, color: '#fff', border: 'none', borderRadius: 10, padding: '8px 10px', whiteSpace: 'nowrap', fontWeight: 700, fontSize: 13, cursor: 'pointer' });
+  const PAY_OPTIONS = [
+    { id: 'Card', label: '💳 Card' },
+    { id: 'Cash', label: '💵 Cash' },
+    { id: 'Revolut', label: '🏦 Revolut' },
+  ];
+
+  if (!session && !guestMode) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0b1120', color: '#f8fafc', fontFamily: 'system-ui, sans-serif', padding: '28px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 24 }}>
+          <span style={{ fontSize: 28 }}>⚡</span>
+          <div style={{ lineHeight: 1.15 }}>
+            <div style={{ fontSize: 26, fontWeight: 800, color: '#38bdf8' }}>SwiftBuy</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981', letterSpacing: 0.5 }}>Groceries</div>
+          </div>
+        </div>
+
+        <div style={{ ...card, maxWidth: 420, margin: '0 auto' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <button type="button" onClick={() => { setAuthMode('signin'); setAuthMsg(''); }} style={{ ...btn(authMode === 'signin' ? '#2563eb' : '#1e293b'), flex: 1, padding: 11 }}>Sign In</button>
+            <button type="button" onClick={() => { setAuthMode('signup'); setAuthMsg(''); }} style={{ ...btn(authMode === 'signup' ? '#10b981' : '#1e293b'), flex: 1, padding: 11 }}>Sign Up</button>
+          </div>
+          {authMsg && <div style={{ background: '#1e293b', border: '1px solid #38bdf8', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>{authMsg}</div>}
+          <form onSubmit={handleAuthSubmit}>
+            {authMode === 'signup' && (
+              <>
+                <input style={input} placeholder="Full Name *" value={authName} onChange={(e) => setAuthName(e.target.value)} required />
+                <input style={input} placeholder="Mobile Phone * (e.g. 087 123 4567)" value={authPhone} onChange={(e) => setAuthPhone(e.target.value)} required />
+              </>
+            )}
+            <input style={input} type="email" placeholder="Email Address *" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} required />
+            <input style={input} type="password" placeholder="Password * (min 6 chars)" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required />
+            <button disabled={authLoading} type="submit" style={{ ...btn(authMode === 'signup' ? '#10b981' : '#2563eb'), width: '100%', padding: 13, fontSize: 15, marginBottom: 10 }}>
+              {authLoading ? 'Please wait...' : authMode === 'signup' ? 'Create Account' : 'Sign In'}
+            </button>
+          </form>
+          <button type="button" onClick={() => setGuestMode(true)} style={{ ...btn('#1e293b'), width: '100%', padding: 10, color: '#94a3b8' }}>Continue as Guest</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#0b1120', color: '#f8fafc', fontFamily: 'system-ui, sans-serif', padding: '14px 14px 40px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 20 }}>⚡</span>
-          <div style={{ lineHeight: 1.15 }}><div style={{ fontSize: 19, fontWeight: 800, color: "#38bdf8" }}>SwiftBuy</div><div style={{ fontSize: 11, fontWeight: 700, color: "#10b981", letterSpacing: 0.4 }}>Groceries</div></div>
+          <span style={{ fontSize: 22 }}>⚡</span>
+          <div style={{ lineHeight: 1.15 }}>
+            <div style={{ fontSize: 19, fontWeight: 800, color: '#38bdf8' }}>SwiftBuy</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#10b981', letterSpacing: 0.4 }}>Groceries</div>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={() => setTab('order')} style={btn(tab === 'order' ? '#10b981' : '#1e293b')}>+ Order</button>
@@ -252,7 +367,7 @@ export default function App() {
               <option value="UK">🇬🇧 UK (£)</option>
             </select>
           </div>
-          {lastOrder && <div style={{ background: '#064e3b', border: '1px solid #10b981', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>✅ Order <b>{lastOrder.id}</b> placed! ({lastOrder.dist} km)</div>}
+          {lastOrder && <div style={{ background: '#064e3b', border: '1px solid #10b981', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>✅ Order <b>{lastOrder.id}</b> placed via <b>{lastOrder.pay}</b>! ({lastOrder.dist} km)</div>}
           <form onSubmit={placeOrder}>
             <input style={input} placeholder="Store Name * (e.g. Tesco, Dunnes, Lidl)" value={form.storeName} onChange={(e) => setForm({ ...form, storeName: e.target.value })} />
             <textarea style={{ ...input, minHeight: 74, resize: 'vertical' }} placeholder="Shopping List / Items *" value={form.itemsList} onChange={(e) => setForm({ ...form, itemsList: e.target.value })} />
@@ -263,15 +378,25 @@ export default function App() {
             <input style={input} placeholder="Your Full Name *" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} />
             <input style={input} placeholder="Mobile Phone *" value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: e.target.value })} />
             <div style={{ display: 'flex', gap: 8 }}>
-              <input style={{ ...input, width: '32%' }} placeholder="Door/Apt" value={form.doorNumber} onChange={(e) => setForm({ ...form, doorNumber: e.target.value })} />
+              <input style={{ ...input, width: '36%' }} placeholder="Door/Apt" value={form.doorNumber} onChange={(e) => setForm({ ...form, doorNumber: e.target.value })} />
               <input style={input} placeholder="Street / Road *" value={form.streetRoad} onChange={(e) => setForm({ ...form, streetRoad: e.target.value })} />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input style={input} placeholder={form.country === 'UK' ? 'UK Postcode (e.g. BT35 6AA)' : 'Eircode (e.g. A91 P592)'} value={form.postcode} onChange={(e) => setForm({ ...form, postcode: e.target.value })} />
               <input style={input} placeholder="Town & County *" value={form.townCounty} onChange={(e) => setForm({ ...form, townCounty: e.target.value })} />
             </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 6 }}>Payment Option</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {PAY_OPTIONS.map((p) => (
+                  <button key={p.id} type="button" onClick={() => setForm({ ...form, paymentMethod: p.id })} style={{ ...btn(form.paymentMethod === p.id ? '#2563eb' : '#0b1120'), flex: 1, padding: '10px 6px', border: form.paymentMethod === p.id ? '1px solid #38bdf8' : '1px solid #2b3856' }}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <button disabled={submitting} type="submit" style={{ ...btn('#10b981'), width: '100%', padding: 13, fontSize: 15 }}>
-              {submitting ? 'Calculating Exact GPS Distance...' : `Submit Order (${curr}${(Number(form.deliveryFee || 0) + Number(form.tipAmount || 0)).toFixed(2)} Fee+Tip)`}
+              {submitting ? 'Calculating Exact GPS Distance...' : `Submit Order • ${form.paymentMethod} (${curr}${(Number(form.deliveryFee || 0) + Number(form.tipAmount || 0)).toFixed(2)})`}
             </button>
           </form>
         </div>
@@ -295,8 +420,10 @@ export default function App() {
 
       {tab === 'settings' && (
         <div style={card}>
-          <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Customer Settings</h2>
-          <p style={{ margin: '0 0 14px', fontSize: 12, color: '#9ca3af' }}>Save your default delivery address and profile photo so every order fills in automatically.</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <h2 style={{ margin: 0, fontSize: 18 }}>Customer Settings</h2>
+            <span style={{ fontSize: 11, color: '#38bdf8' }}>{session?.user?.email || 'Guest'}</span>
+          </div>
           {savedBanner && <div style={{ background: '#064e3b', border: '1px solid #10b981', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>✅ Settings saved!</div>}
           <form onSubmit={saveSettings}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, background: '#0b1120', padding: 10, borderRadius: 10, border: '1px solid #2b3856' }}>
@@ -306,6 +433,12 @@ export default function App() {
                 <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ fontSize: 12, color: '#9ca3af' }} />
               </div>
             </div>
+            <label style={{ fontSize: 12, color: '#9ca3af' }}>Default Payment Method</label>
+            <select style={input} value={settings.paymentMethod} onChange={(e) => setSettings({ ...settings, paymentMethod: e.target.value })}>
+              <option value="Card">💳 Card / Apple Pay / Google Pay</option>
+              <option value="Cash">💵 Cash on Delivery</option>
+              <option value="Revolut">🏦 Revolut / Instant Transfer</option>
+            </select>
             <select style={input} value={settings.country} onChange={(e) => setSettings({ ...settings, country: e.target.value, townCounty: e.target.value === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth' })}>
               <option value="IE">🇮🇪 Ireland (€ EUR)</option>
               <option value="UK">🇬🇧 Northern Ireland / UK (£ GBP)</option>
@@ -313,7 +446,7 @@ export default function App() {
             <input style={input} placeholder="Default Full Name" value={settings.customerName} onChange={(e) => setSettings({ ...settings, customerName: e.target.value })} />
             <input style={input} placeholder="Default Mobile Phone" value={settings.customerPhone} onChange={(e) => setSettings({ ...settings, customerPhone: e.target.value })} />
             <div style={{ display: 'flex', gap: 8 }}>
-              <input style={{ ...input, width: '32%' }} placeholder="Door/Apt" value={settings.doorNumber} onChange={(e) => setSettings({ ...settings, doorNumber: e.target.value })} />
+              <input style={{ ...input, width: '36%' }} placeholder="Door/Apt" value={settings.doorNumber} onChange={(e) => setSettings({ ...settings, doorNumber: e.target.value })} />
               <input style={input} placeholder="Default Street / Road" value={settings.streetRoad} onChange={(e) => setSettings({ ...settings, streetRoad: e.target.value })} />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -325,7 +458,10 @@ export default function App() {
               <input type="checkbox" checked={settings.soundEnabled} onChange={(e) => setSettings({ ...settings, soundEnabled: e.target.checked })} />
             </label>
             <button type="submit" style={{ ...btn('#10b981'), width: '100%', padding: 12, fontSize: 14, marginBottom: 10 }}>Save Customer Settings</button>
-            <button type="button" onClick={clearSettings} style={{ ...btn('#334155'), width: '100%', padding: 10, fontSize: 13 }}>Reset Saved Data</button>
+            <button type="button" onClick={clearSettings} style={{ ...btn('#334155'), width: '100%', padding: 10, fontSize: 13, marginBottom: 10 }}>Reset Saved Data</button>
+            <button type="button" onClick={handleSignOut} style={{ ...btn('#dc2626'), width: '100%', padding: 10, fontSize: 13 }}>
+              {session ? 'Sign Out' : 'Exit Guest Mode / Sign In'}
+            </button>
           </form>
         </div>
       )}

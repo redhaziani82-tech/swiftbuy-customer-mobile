@@ -549,7 +549,7 @@ export default function App() {
     if (!dropCoords) { setSubmitting(false); return alert('Address or Postcode/Eircode not found.'); }
     const storeCoords = (await geocodePlace(activeStoreName, '', form.townCounty, form.country)) || dropCoords;
     const dist = calcKm(storeCoords.lat, storeCoords.lng, dropCoords.lat, dropCoords.lng);
-    if (dist > 7) { setSubmitting(false); return alert(`Store to delivery address is ${dist} km (max 7 km).`); }
+    if (dist > 15) { setSubmitting(false); return alert(`Store to delivery address is ${dist} km (max 15 km).`); }
     const id = 'ORD-' + Math.floor(1000 + Math.random() * 9000);
     const tip = parseFloat(form.tipAmount || '0');
     const totalFee = parseFloat(form.deliveryFee || '5') + tip;

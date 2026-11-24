@@ -507,9 +507,9 @@ export default function App() {
     const totalFee = parseFloat(form.deliveryFee || '5') + tip;
     const payload = {
       id, customer_name: form.customerName.trim(), customer_phone: form.customerPhone.trim(),
-      store_name: activeStoreName, items_list: `${combinedItemsText} [Pay: ${form.paymentMethod}]`,
+      store_name: activeStoreName, items_list: `${combinedItemsText} [Pay: ${form.paymentMethod}${tip > 0 ? ` • Tip: ${curr}${tip.toFixed(2)}` : ''}]`,
       estimated_goods_cost: parseFloat(form.estimatedGoodsCost || '0'),
-      delivery_fee: totalFee, tip_amount: tip, vehicle: 'Any Vehicle',
+      delivery_fee: totalFee, vehicle: 'Any Vehicle',
       door_number: form.doorNumber.trim(), street_road: form.streetRoad.trim(),
       postcode: form.postcode.trim(), town_county: form.townCounty.trim(),
       region: form.country, distance_km: dist, status: 'pending',

@@ -1,5 +1,10 @@
 {
   "appId": "ie.swiftbuy.customer",
   "appName": "SwiftBuy",
-  "webDir": "dist"
+  "webDir": "dist",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
 }

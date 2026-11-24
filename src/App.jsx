@@ -33,16 +33,38 @@ const PAY_OPTIONS = [
 
 const TIP_PRESETS = ['0', '2', '5', '10'];
 
+const LOCAL_STREETS = new Array(
+  { label: 'Armagh Road, Dundalk, Co. Louth, A91', street: 'Armagh Road', town: 'Dundalk, Co. Louth', postcode: 'A91', lat: 54.0112, lng: -6.4055 },
+  { label: 'Clanbrassil Street, Dundalk, Co. Louth, A91', street: 'Clanbrassil Street', town: 'Dundalk, Co. Louth', postcode: 'A91', lat: 54.0037, lng: -6.4021 },
+  { label: 'Park Street, Dundalk, Co. Louth, A91', street: 'Park Street', town: 'Dundalk, Co. Louth', postcode: 'A91', lat: 54.0005, lng: -6.4038 },
+  { label: 'Dublin Street, Dundalk, Co. Louth, A91', street: 'Dublin Street', town: 'Dundalk, Co. Louth', postcode: 'A91', lat: 53.9982, lng: -6.4019 },
+  { label: 'Dublin Road, Dundalk, Co. Louth, A91', street: 'Dublin Road', town: 'Dundalk, Co. Louth', postcode: 'A91', lat: 53.9885, lng: -6.3942 },
+  { label: 'Castletown Road, Dundalk, Co. Louth, A91', street: 'Castletown Road', town: 'Dundalk, Co. Louth', postcode: 'A91', lat: 54.0086, lng: -6.4168 },
+  { label: 'Avenue Road, Dundalk, Co. Louth, A91', street: 'Avenue Road', town: 'Dundalk, Co. Louth', postcode: 'A91', lat: 53.9964, lng: -6.3895 },
+  { label: 'Jocelyn Street, Dundalk, Co. Louth, A91', street: 'Jocelyn Street', town: 'Dundalk, Co. Louth', postcode: 'A91', lat: 54.0028, lng: -6.3965 },
+  { label: 'Seatown Place, Dundalk, Co. Louth, A91', street: 'Seatown Place', town: 'Dundalk, Co. Louth', postcode: 'A91', lat: 54.0044, lng: -6.3932 },
+  { label: 'Crowe Street, Dundalk, Co. Louth, A91', street: 'Crowe Street', town: 'Dundalk, Co. Louth', postcode: 'A91', lat: 54.0029, lng: -6.4002 },
+  { label: 'Hill Street, Newry, Co. Down, BT34', street: 'Hill Street', town: 'Newry, Co. Down', postcode: 'BT34', lat: 54.1751, lng: -6.3385 },
+  { label: 'Monaghan Street, Newry, Co. Down, BT35', street: 'Monaghan Street', town: 'Newry, Co. Down', postcode: 'BT35', lat: 54.1762, lng: -6.3428 }
+);
+
 async function searchAddressSuggestions(query, country) {
   const q = (query || '').trim();
-  if (q.length < 2) return [];
-  const results = [];
+  if (q.length < 2) return new Array();
+  const ql = q.toLowerCase();
+  const results = new Array();
   const seen = new Set();
   const add = (item) => {
     if (!item || !item.label || seen.has(item.label)) return;
     seen.add(item.label);
     results.push(item);
   };
+
+  LOCAL_STREETS.forEach((st) => {
+    if (st.label.toLowerCase().includes(ql) || st.street.toLowerCase().includes(ql)) {
+      add(st);
+    }
+  });
 
   try {
     const bias = country === 'UK' ? '&lat=54.1751&lon=-6.3402' : '&lat=54.0037&lon=-6.4021';
@@ -70,28 +92,6 @@ async function searchAddressSuggestions(query, country) {
     });
   } catch {}
 
-  if (results.length === 0) {
-    try {
-      const cc = country === 'UK' ? 'gb' : 'ie';
-      const res2 = await fetch(`https://openstreetmap.org{cc}&q=${encodeURIComponent(q)}`);
-      const data2 = await res2.json();
-      if (Array.isArray(data2)) {
-        data2.forEach((item) => {
-          const a = item.address || {};
-          const street = new Array(a.house_number, a.road || a.pedestrian || a.suburb || item.name).filter(Boolean).join(' ');
-          const town = new Array(a.city || a.town || a.village, a.county).filter(Boolean).join(', ');
-          add({
-            label: item.display_name,
-            street: street || item.name || q,
-            town: town || (country === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth'),
-            postcode: a.postcode || '',
-            lat: parseFloat(item.lat),
-            lng: parseFloat(item.lon),
-          });
-        });
-      }
-    } catch {}
-  }
   return results;
 }
 

@@ -351,6 +351,7 @@ export default function App() {
   const [customShopName, setCustomShopName] = useState('');
   const [cartItems, setCartItems] = useState([]);
   const [newItemName, setNewItemName] = useState('');
+  const [newItemUnit, setNewItemUnit] = useState('');
   const [newItemQty, setNewItemQty] = useState('1');
   const [form, setForm] = useState({
     country: settings.country, customerName: settings.customerName, customerPhone: settings.customerPhone,
@@ -508,14 +509,26 @@ export default function App() {
     setTimeout(() => setSavedBanner(false), 2500);
   };
 
-  const addGroceryItem = (label, qty = 1) => {
-    const clean = label.trim();
-    if (!clean) return;
+  const addGroceryItem = (label, qty = 1, unit = "") => {
+    const cleanBase = label.trim();
+    if (!cleanBase) return;
+    const cleanUnit = (unit || "").trim();
+    const clean = cleanUnit && !cleanBase.toLowerCase().includes(cleanUnit.toLowerCase())
+      ? `${cleanBase} (${cleanUnit})`
+      : cleanBase;
     setCartItems((prev) => {
       const idx = prev.findIndex((i) => i.name.toLowerCase() === clean.toLowerCase());
       if (idx > -1) { const copy = [...prev]; copy[idx] = { ...copy[idx], qty: copy[idx].qty + Number(qty || 1) }; return copy; }
       return [...prev, { name: clean, qty: Number(qty || 1) }];
     });
+  };
+
+  const setCartItemUnit = (index, unit) => {
+    setCartItems((prev) => prev.map((it, idx) => {
+      if (idx !== index) return it;
+      const base = it.name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+      return { ...it, name: unit ? `${base} (${unit})` : base };
+    }));
   };
 
   const removeGroceryItem = (index) => setCartItems((prev) => prev.filter((_, i) => i !== index));
@@ -656,11 +669,33 @@ export default function App() {
                 <button key={item} type="button" onClick={() => addGroceryItem(item, 1)} style={{ background: '#0b1120', border: '1px solid #2b3856', borderRadius: 20, color: '#e2e8f0', fontSize: 11, padding: '5px 9px', cursor: 'pointer' }}>+ {item}</button>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-              <input style={{ ...input, marginBottom: 0, width: '64px', textAlign: 'center' }} type="number" min="1" value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} placeholder="Qty" />
-              <input style={{ ...input, marginBottom: 0, flex: 1 }} placeholder="Custom item (e.g. Organic Honey)" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} />
-              <button type="button" onClick={() => { if (newItemName.trim()) { addGroceryItem(newItemName, newItemQty); setNewItemName(''); setNewItemQty('1'); } }} style={btn('#10b981')}>Add</button>
-            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+    <input style={{ ...input, marginBottom: 0, width: "56px", textAlign: "center" }} type="number" min="1" value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} placeholder="Qty" />
+    <input style={{ ...input, marginBottom: 0, flex: 1 }} placeholder="Item (e.g. Milk, Eggs, Rice)" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} />
+    <input style={{ ...input, marginBottom: 0, width: "86px", textAlign: "center" }} placeholder="kg / L / pack" value={newItemUnit} onChange={(e) => setNewItemUnit(e.target.value)} />
+    <button type="button" onClick={() => { if (newItemName.trim()) { addGroceryItem(newItemName, newItemQty, newItemUnit); setNewItemName(""); setNewItemQty("1"); setNewItemUnit(""); } }} style={btn("#10b981")}>Add</button>
+  </div>
+  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+    {["piece", "500g", "1 kg", "2 kg", "1L", "1.5L", "2L", "6 pack", "12 pack"].map((u) => (
+      <button
+        key={u}
+        type="button"
+        onClick={() => setNewItemUnit((prev) => (prev === u ? "" : u))}
+        style={{
+          background: newItemUnit === u ? "#2563eb" : "#0f172a",
+          border: newItemUnit === u ? "1px solid #60a5fa" : "1px solid #1e293b",
+          borderRadius: 14,
+          color: newItemUnit === u ? "#fff" : "#94a3b8",
+          fontSize: 10,
+          fontWeight: 700,
+          padding: "3px 8px",
+          cursor: "pointer"
+        }}
+      >
+        {u}
+      </button>
+    ))}
+  </div>
             {cartItems.length > 0 && (
               <div style={{ background: '#0b1120', border: '1px solid #2b3856', borderRadius: 10, padding: 8, marginBottom: 10 }}>
                 {cartItems.map((it, idx) => (

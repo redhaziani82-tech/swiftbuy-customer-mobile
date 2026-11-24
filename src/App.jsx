@@ -278,6 +278,37 @@ function DeliveryPinMap({ coords, onPickCoords }) {
   );
 }
 
+
+const STAR_EMOTIONS = [
+  { level: 1, face: "😠", label: "Poor", color: "#ef4444" },
+  { level: 2, face: "😕", label: "Fair", color: "#f97316" },
+  { level: 3, face: "😐", label: "Okay", color: "#eab308" },
+  { level: 4, face: "😊", label: "Good", color: "#22c55e" },
+  { level: 5, face: "🤩", label: "Great", color: "#fbbf24" }
+];
+
+function EmotionStar({ level, active, size = 48 }) {
+  const item = STAR_EMOTIONS[level - 1] || STAR_EMOTIONS[4];
+  const fill = active ? item.color : "#1e293b";
+  const stroke = active ? "#fef08a" : "#475569";
+  return (
+    <div style={{ position: "relative", width: size, height: size, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+      <svg width={size} height={size} viewBox="0 0 64 64" style={{ filter: active ? "drop-shadow(0 3px 8px rgba(251,191,36,0.45))" : "none", transition: "transform 0.15s ease" }}>
+        <polygon
+          points="32,3 40.5,21.5 61,24.2 46,38.4 49.8,59 32,49.1 14.2,59 18,38.4 3,24.2 23.5,21.5"
+          fill={fill}
+          stroke={stroke}
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <span style={{ position: "absolute", top: "52%", left: "50%", transform: "translate(-50%, -50%)", fontSize: Math.round(size * 0.36), lineHeight: 1, pointerEvents: "none" }}>
+        {item.face}
+      </span>
+    </div>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [guestMode, setGuestMode] = useState(false);
@@ -749,11 +780,35 @@ export default function App() {
                       ) : (
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Rate Your Driver Delivery</div>
-                          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <button key={star} type="button" onClick={() => setRatingDrafts((prev) => ({ ...prev, [o.id]: { ...draft, stars: star } }))} style={{ background: 'transparent', border: 'none', fontSize: 24, color: star <= draft.stars ? '#fbbf24' : '#475569', cursor: 'pointer', padding: 0 }}>★</button>
-                            ))}
-                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 6, marginBottom: 10 }}>
+    {STAR_EMOTIONS.map((item) => {
+      const active = item.level <= draft.stars;
+      return (
+        <button
+          key={item.level}
+          type="button"
+          onClick={() => setRatingDrafts((prev) => ({ ...prev, [o.id]: { ...draft, stars: item.level } }))}
+          style={{
+            flex: 1,
+            background: active ? "rgba(251,191,36,0.12)" : "rgba(15,23,42,0.6)",
+            border: active ? "1px solid #fbbf24" : "1px solid #1e293b",
+            borderRadius: 12,
+            padding: "6px 2px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 2,
+            cursor: "pointer"
+          }}
+        >
+          <EmotionStar level={item.level} active={active} size={46} />
+          <span style={{ fontSize: 10, fontWeight: 800, color: active ? "#fde047" : "#64748b" }}>
+            {item.level}★ {item.label}
+          </span>
+        </button>
+      );
+    })}
+  </div>
                           <input style={{ ...input, marginBottom: 8 }} placeholder="Leave a quick note for your driver (optional)" value={draft.comment} onChange={(e) => setRatingDrafts((prev) => ({ ...prev, [o.id]: { ...draft, comment: e.target.value } }))} />
                           <button type="button" onClick={() => submitDriverRating(o)} style={btn('#10b981')}>Submit Rating</button>
                         </div>

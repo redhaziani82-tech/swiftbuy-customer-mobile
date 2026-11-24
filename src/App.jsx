@@ -4,11 +4,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 
 const SHOPS = [
-  { id: 'Tesco', label: '🛒 Tesco', tag: 'Supermarket' },
-  { id: 'Dunnes Stores', label: '🛍️ Dunnes', tag: 'Groceries' },
-  { id: 'Aldi', label: '🥦 Aldi', tag: 'Value' },
-  { id: 'Lidl', label: '🥖 Lidl', tag: 'Fresh' },
-  { id: 'Custom', label: '🏪 Other Shop', tag: 'Any Store' },
+  { id: "Tesco", label: "Tesco", tag: "Supermarket", domain: "tesco.ie", ukDomain: "tesco.com" },
+  { id: "Dunnes Stores", label: "Dunnes", tag: "Groceries", domain: "dunnesstores.com", ukDomain: "dunnesstores.com" },
+  { id: "SuperValu", label: "SuperValu", tag: "Local & Fresh", domain: "supervalu.ie", ukDomain: "supervalu.ie" },
+  { id: "Aldi", label: "Aldi", tag: "Value", domain: "aldi.ie", ukDomain: "aldi.co.uk" },
+  { id: "Lidl", label: "Lidl", tag: "Fresh", domain: "lidl.ie", ukDomain: "lidl.co.uk" },
+  { id: "Centra", label: "Centra", tag: "Convenience", domain: "centra.ie", ukDomain: "centra.ie" },
+  { id: "Custom", label: "🏪 Other Shop", tag: "Any Store", domain: "" }
 ];
 
 const QUICK_GROCERIES = [
@@ -656,13 +658,59 @@ export default function App() {
           <form onSubmit={placeOrder}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>1. Choose Supermarket or Any Shop</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 10 }}>
-              {SHOPS.map((s) => (
-                <button key={s.id} type="button" onClick={() => { setSelectedShop(s.id); if (s.id !== 'Custom') setForm({ ...form, storeName: s.id }); }} style={{ background: selectedShop === s.id ? '#1d4ed8' : '#0b1120', border: selectedShop === s.id ? '1px solid #60a5fa' : '1px solid #2b3856', borderRadius: 10, color: '#f8fafc', padding: '8px 6px', textAlign: 'center', cursor: 'pointer' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{s.label}</div>
-                  <div style={{ fontSize: 10, color: '#94a3b8' }}>{s.tag}</div>
-                </button>
-              ))}
-            </div>
+              {SHOPS.map((s) => {
+    const activeDomain = form.country === "UK" ? (s.ukDomain || s.domain) : s.domain;
+    return (
+      <button
+        key={s.id}
+        type="button"
+        onClick={() => { setSelectedShop(s.id); if (s.id !== "Custom") setForm({ ...form, storeName: s.id }); }}
+        style={{
+          background: selectedShop === s.id ? "#1d4ed8" : "#0b1120",
+          border: selectedShop === s.id ? "1px solid #60a5fa" : "1px solid #2b3856",
+          borderRadius: 10,
+          color: "#f8fafc",
+          padding: "8px 6px",
+          textAlign: "center",
+          cursor: "pointer",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 3
+        }}
+      >
+        {activeDomain && (
+          <img
+            src={`https://google.com${activeDomain}`}
+            alt={s.label}
+            style={{ width: 24, height: 24, borderRadius: 6, background: "#fff", padding: 2, objectFit: "contain" }}
+          />
+        )}
+        <div style={{ fontSize: 13, fontWeight: 700 }}>{s.label}</div>
+        <div style={{ fontSize: 10, color: selectedShop === s.id ? "#dbeafe" : "#94a3b8" }}>
+          {activeDomain || s.tag}
+        </div>
+      </button>
+    );
+  })}
+</div>
+{(() => {
+  const activeShopObj = SHOPS.find((x) => x.id === selectedShop);
+  const d = activeShopObj ? (form.country === "UK" ? (activeShopObj.ukDomain || activeShopObj.domain) : activeShopObj.domain) : "";
+  if (!d) return null;
+  return (
+    <div style={{ marginBottom: 10, textAlign: "right" }}>
+      <a
+        href={`https://www.${d}`}
+        target="_blank"
+        rel="noreferrer"
+        style={{ fontSize: 11, color: "#38bdf8", fontWeight: 700, textDecoration: "none" }}
+      >
+        🌐 Check prices on {d} ↗
+      </a>
+    </div>
+  );
+})()}
             {selectedShop === 'Custom' && (
               <input style={input} placeholder="Type any shop name (e.g. Centra, SuperValu, Local Butcher...)" value={customShopName} onChange={(e) => { setCustomShopName(e.target.value); setForm({ ...form, storeName: e.target.value }); }} required />
             )}

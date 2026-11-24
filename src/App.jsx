@@ -234,7 +234,7 @@ export default function App() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 20 }}>⚡</span>
-          <div style={{ lineHeight: 1.15 }}><div style={{ fontSize: 19, fontWeight: 800, color: "#38bdf8" }}>SwiftBuy</div><div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8" }}>Groceries Delivery</div></div>
+          <div style={{ lineHeight: 1.15 }}><div style={{ fontSize: 19, fontWeight: 800, color: "#38bdf8" }}>SwiftBuy</div><div style={{ fontSize: 11, fontWeight: 700, color: "#10b981", letterSpacing: 0.4 }}>Groceries</div></div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={() => setTab('order')} style={btn(tab === 'order' ? '#10b981' : '#1e293b')}>+ Order</button>

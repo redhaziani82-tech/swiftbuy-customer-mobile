@@ -227,14 +227,14 @@ export default function App() {
 
   const card = { background: '#161f33', border: '1px solid #26324d', borderRadius: 14, padding: 16, marginBottom: 14 };
   const input = { width: '100%', boxSizing: 'border-box', background: '#0b1120', border: '1px solid #2b3856', borderRadius: 10, padding: '11px 12px', color: '#f8fafc', fontSize: 14, marginBottom: 10 };
-  const btn = (bg) => ({ background: bg, color: '#fff', border: 'none', borderRadius: 10, padding: '10px 14px', fontWeight: 700, fontSize: 13, cursor: 'pointer' });
+  const btn = (bg) => ({ background: bg, color: '#fff', border: 'none', borderRadius: 10, padding: '8px 10px', whiteSpace: 'nowrap', fontWeight: 700, fontSize: 13, cursor: 'pointer' });
 
   return (
     <div style={{ minHeight: '100vh', background: '#0b1120', color: '#f8fafc', fontFamily: 'system-ui, sans-serif', padding: '14px 14px 40px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 20 }}>⚡</span>
-          <span style={{ fontSize: 20, fontWeight: 800, color: '#38bdf8' }}>SwiftBuy</span>
+          <div style={{ lineHeight: 1.15 }}><div style={{ fontSize: 19, fontWeight: 800, color: "#38bdf8" }}>SwiftBuy</div><div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8" }}>Groceries Delivery</div></div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={() => setTab('order')} style={btn(tab === 'order' ? '#10b981' : '#1e293b')}>+ Order</button>

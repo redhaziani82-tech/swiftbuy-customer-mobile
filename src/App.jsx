@@ -379,6 +379,112 @@ export default function App() {
       </div>
     );
   }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#0b1120', color: '#f8fafc', fontFamily: 'system-ui, sans-serif', padding: '14px 14px 40px' }}>
+      <input ref={headerFileRef} type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div onClick={() => headerFileRef.current?.click()} style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', border: '2px solid #10b981', background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            {settings.customerPhoto ? <img src={settings.customerPhoto} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 18 }}>📷</span>}
+          </div>
+          <div style={{ lineHeight: 1.15 }}>
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#38bdf8' }}>SwiftBuy</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#10b981', letterSpacing: 0.4 }}>Groceries</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => setTab('order')} style={btn(tab === 'order' ? '#10b981' : '#1e293b')}>+ Order</button>
+          <button onClick={() => setTab('orders')} style={btn(tab === 'orders' ? '#2563eb' : '#1e293b')}>Orders</button>
+          <button onClick={() => setTab('settings')} style={btn(tab === 'settings' ? '#8b5cf6' : '#1e293b')}>⚙️</button>
+        </div>
+      </div>
+
+      {tab === 'order' && (
+        <div style={card}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h2 style={{ margin: 0, fontSize: 18 }}>New Grocery Order</h2>
+            <select value={form.country} onChange={(e) => { const c = e.target.value; setForm({ ...form, country: c, townCounty: c === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth' }); }} style={{ background: '#0b1120', color: '#f8fafc', border: '1px solid #2b3856', borderRadius: 8, padding: '6px 8px', fontSize: 12, fontWeight: 700 }}>
+              <option value="IE">🇮🇪 Ireland (€)</option>
+              <option value="UK">🇬🇧 UK (£)</option>
+            </select>
+          </div>
+          <form onSubmit={placeOrder}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>1. Choose Supermarket or Any Shop</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 10 }}>
+              {SHOPS.map((s) => (
+                <button key={s.id} type="button" onClick={() => { setSelectedShop(s.id); if (s.id !== 'Custom') setForm({ ...form, storeName: s.id }); }} style={{ background: selectedShop === s.id ? '#1d4ed8' : '#0b1120', border: selectedShop === s.id ? '1px solid #60a5fa' : '1px solid #2b3856', borderRadius: 10, color: '#f8fafc', padding: '8px 6px', textAlign: 'center', cursor: 'pointer' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{s.label}</div>
+                  <div style={{ fontSize: 10, color: '#94a3b8' }}>{s.tag}</div>
+                </button>
+              ))}
+            </div>
+            {selectedShop === 'Custom' && (
+              <input style={input} placeholder="Type any shop name (e.g. Centra, SuperValu, Local Butcher...)" value={customShopName} onChange={(e) => { setCustomShopName(e.target.value); setForm({ ...form, storeName: e.target.value }); }} required />
+            )}
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6, marginTop: 4 }}>2. Add Grocery Items</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+              {QUICK_GROCERIES.map((item) => (
+                <button key={item} type="button" onClick={() => addGroceryItem(item, 1)} style={{ background: '#0b1120', border: '1px solid #2b3856', borderRadius: 20, color: '#e2e8f0', fontSize: 11, padding: '5px 9px', cursor: 'pointer' }}>+ {item}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <input style={{ ...input, marginBottom: 0, width: '64px', textAlign: 'center' }} type="number" min="1" value={newItemQty} onChange={(e) => setNewItemQty(e.target.value)} placeholder="Qty" />
+              <input style={{ ...input, marginBottom: 0, flex: 1 }} placeholder="Custom item (e.g. Organic Honey)" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} />
+              <button type="button" onClick={() => { if (newItemName.trim()) { addGroceryItem(newItemName, newItemQty); setNewItemName(''); setNewItemQty('1'); } }} style={btn('#10b981')}>Add</button>
+            </div>
+            {cartItems.length > 0 && (
+              <div style={{ background: '#0b1120', border: '1px solid #2b3856', borderRadius: 10, padding: 8, marginBottom: 10 }}>
+                {cartItems.map((it, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 2px', borderBottom: idx < cartItems.length - 1 ? '1px solid #1e293b' : 'none', fontSize: 13 }}>
+                    <span><b style={{ color: '#38bdf8' }}>{it.qty}x</b> {it.name}</span>
+                    <button type="button" onClick={() => removeGroceryItem(idx)} style={{ background: 'transparent', border: 'none', color: '#f87171', fontWeight: 700, cursor: 'pointer' }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <textarea style={{ ...input, minHeight: 54, resize: 'vertical' }} placeholder="Extra grocery notes or list..." value={form.itemsList} onChange={(e) => setForm({ ...form, itemsList: e.target.value })} />
+            <input style={input} type="number" step="0.01" placeholder={`Estimated Goods Cost (${curr}) — optional`} value={form.estimatedGoodsCost} onChange={(e) => setForm({ ...form, estimatedGoodsCost: e.target.value })} />
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>3. Delivery Address & Contact</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input style={input} placeholder="Your Name" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} required />
+              <input style={input} placeholder="Phone Number" value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: e.target.value })} required />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input style={{ ...input, width: '36%' }} placeholder="Door/Apt" value={form.doorNumber} onChange={(e) => setForm({ ...form, doorNumber: e.target.value })} />
+              <input style={input} placeholder="Street / Road" value={form.streetRoad} onChange={(e) => setForm({ ...form, streetRoad: e.target.value })} required />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input style={input} placeholder={form.country === 'UK' ? 'Postcode' : 'Eircode (e.g. A91 P592)'} value={form.postcode} onChange={(e) => setForm({ ...form, postcode: e.target.value })} />
+              <input style={input} placeholder="Town & County" value={form.townCounty} onChange={(e) => setForm({ ...form, townCounty: e.target.value })} required />
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>4. Driver Tip ({curr})</div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+              {TIP_PRESETS.map((t) => (
+                <button key={t} type="button" onClick={() => setForm({ ...form, tipAmount: t })} style={{ ...btn(String(form.tipAmount) === t ? '#10b981' : '#0b1120'), flex: 1, border: String(form.tipAmount) === t ? '1px solid #34d399' : '1px solid #2b3856' }}>
+                  {t === '0' ? 'No Tip' : `${curr}${t}`}
+                </button>
+              ))}
+              <input style={{ ...input, marginBottom: 0, width: 76, textAlign: 'center' }} type="number" step="0.50" min="0" placeholder="Custom" value={form.tipAmount} onChange={(e) => setForm({ ...form, tipAmount: e.target.value })} />
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>5. Payment Method</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              {PAY_OPTIONS.map((p) => (
+                <button key={p.id} type="button" onClick={() => setForm({ ...form, paymentMethod: p.id })} style={{ ...btn(form.paymentMethod === p.id ? '#2563eb' : '#0b1120'), flex: 1, padding: '10px 6px', border: form.paymentMethod === p.id ? '1px solid #38bdf8' : '1px solid #2b3856' }}>{p.label}</button>
+              ))}
+            </div>
+
+            <button disabled={submitting} type="submit" style={{ ...btn('#10b981'), width: '100%', padding: 13, fontSize: 15 }}>
+              {submitting ? 'Calculating GPS Distance...' : `Submit Order • ${form.paymentMethod} (${curr}${(Number(form.deliveryFee || 0) + Number(form.tipAmount || 0)).toFixed(2)})`}
+            </button>
+          </form>
+        </div>
+      )}
+
       {tab === 'orders' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -479,5 +585,6 @@ export default function App() {
           </form>
         </div>
       )}
+    </div>
   );
 }

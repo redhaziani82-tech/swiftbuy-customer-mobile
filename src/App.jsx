@@ -1,73 +1,150 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
+
+const SHOPS = [
+  { id: 'Tesco', label: '🛒 Tesco', tag: 'Supermarket' },
+  { id: 'Dunnes Stores', label: '🛍️ Dunnes', tag: 'Groceries' },
+  { id: 'Aldi', label: '🥦 Aldi', tag: 'Value' },
+  { id: 'Lidl', label: '🥖 Lidl', tag: 'Fresh' },
+  { id: 'Custom', label: '🏪 Other Shop', tag: 'Any Store' },
+];
+
+const QUICK_GROCERIES = [
+  '🥛 Fresh Milk (2L)',
+  '🍞 Sliced Bread',
+  '🥚 Free Range Eggs (12)',
+  '🍌 Bananas (Bunch)',
+  '🍗 Chicken Fillets',
+  '🧀 Cheddar Cheese',
+  '🥔 Potatoes (2.5kg)',
+  '🍎 Apples (6 Pack)',
+  '☕ Tea Bags / Coffee',
+  '💧 Still Water (6 Pack)',
+  '🍝 Pasta & Sauce',
+  '🧻 Kitchen Roll',
+];
+
+const PAY_OPTIONS = [
+  { id: 'Card', label: '💳 Card' },
+  { id: 'Revolut', label: '📱 Revolut' },
+];
+
+const TIP_PRESETS = ['0', '2', '5', '10'];
 
 function calcKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
-    Math.sin(dLat / 2) ** 2 +
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((lat1 * Math.PI) / 180) *
       Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-  return +(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(2);
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return Number((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(2));
 }
 
 async function geocodePlace(street, postcode, town, country) {
-  const host = 'https://openstreetmap.org';
-  const cleanPin = (postcode || '').trim().toUpperCase().replace(/\s+/g, '');
-  const spacedPin = cleanPin.length > 4 ? `${cleanPin.slice(0, -3)} ${cleanPin.slice(-3)}` : cleanPin;
-  const countryName = country === 'UK' ? 'United Kingdom' : 'Ireland';
-  const cc = country === 'UK' ? 'gb' : 'ie';
   const queries = [
-    spacedPin ? `${spacedPin}, ${countryName}` : '',
-    `${street}, ${town}, ${countryName}`,
-    `${town}, ${countryName}`,
-  ].filter(Boolean);
+    [street, postcode, town, country].filter(Boolean).join(', '),
+    [postcode, town, country].filter(Boolean).join(', '),
+    [town, country].filter(Boolean).join(', '),
+  ];
   for (const q of queries) {
+    if (!q.trim()) continue;
     try {
-      const res = await fetch(`${host}/search?format=json&limit=1&countrycodes=${cc}&q=${encodeURIComponent(q)}`);
+      const res = await fetch(
+        `https://openstreetmap.org{encodeURIComponent(q)}`
+      );
       const data = await res.json();
-      const hit = Array.isArray(data) ? data.find(Boolean) : null;
-      if (hit) return { lat: parseFloat(hit.lat), lng: parseFloat(hit.lon) };
-    } catch (_) {}
+      if (data && data) {
+        return { lat: parseFloat(data.lat), lng: parseFloat(data.lon) };
+      }
+    } catch {}
   }
   return null;
 }
 
 function playConfirmChime() {
   try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
-    [523.25, 659.25, 1046.5].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.12);
-      gain.gain.setValueAtTime(0.22, ctx.currentTime + i * 0.12);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.12 + 0.3);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(ctx.currentTime + i * 0.12);
-      osc.stop(ctx.currentTime + i * 0.12 + 0.32);
-    });
-  } catch (_) {}
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch {}
 }
 
-const DEFAULT_SETTINGS = {
-  country: 'IE',
-  customerName: '',
-  customerPhone: '',
-  doorNumber: '',
-  streetRoad: '',
-  postcode: '',
-  townCounty: 'Dundalk, Co. Louth',
-  paymentMethod: 'Card',
-  customerPhoto: '',
-  soundEnabled: true,
-};
+function getVehicleBadge(v) {
+  const s = String(v || '').toLowerCase();
+  if (s.includes('bike') && !s.includes('motor')) return { emoji: '🚴', label: 'Bicycle' };
+  if (s.includes('bicycle') || s.includes('cycle')) return { emoji: '🚴', label: 'Bicycle' };
+  if (s.includes('motor') || s.includes('scooter') || s.includes('moped'))
+    return { emoji: '🏍️', label: 'Motorcycle' };
+  return { emoji: '🚗', label: 'Car' };
+}
 
+function LiveDriverMap({ driver }) {
+  const mapElRef = useRef(null);
+  const mapObjRef = useRef(null);
+  const driverMarkerRef = useRef(null);
+
+  const lat = typeof driver?.lat === 'number' ? driver.lat : 54.0037;
+  const lng = typeof driver?.lng === 'number' ? driver.lng : -6.4021;
+  const badge = getVehicleBadge(driver?.vehicle_type || driver?.vehicle);
+
+  useEffect(() => {
+    if (!mapElRef.current || !window.L || mapObjRef.current) return;
+    const L = window.L;
+    const map = L.map(mapElRef.current, { zoomControl: false }).setView([lat, lng], 15);
+    L.tileLayer('https://{s}://{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(map);
+    mapObjRef.current = map;
+    return () => {
+      try { map.remove(); } catch {}
+      mapObjRef.current = null;
+      driverMarkerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapObjRef.current;
+    const L = window.L;
+    if (!map || !L) return;
+    const icon = L.divIcon({
+      className: 'sb-driver-pin',
+      html: `<div style="background:#0f172a;border:2px solid #10b981;border-radius:50%;width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:21px;box-shadow:0 0 14px rgba(16,185,129,0.75);">${badge.emoji}</div>`,
+      iconSize: [38, 38],
+      iconAnchor: [19, 19],
+    });
+    if (!driverMarkerRef.current) {
+      driverMarkerRef.current = L.marker([lat, lng], { icon }).addTo(map);
+    } else {
+      driverMarkerRef.current.setLatLng([lat, lng]);
+      driverMarkerRef.current.setIcon(icon);
+    }
+    map.panTo([lat, lng]);
+  }, [lat, lng, badge.emoji]);
+
+  return (
+    <div style={{ marginTop: 10, borderRadius: 12, overflow: 'hidden', border: '1px solid #2b3856' }}>
+      <div style={{ background: '#0b1120', padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
+        <span style={{ color: '#10b981', fontWeight: 700 }}>{badge.emoji} Driver Live ({badge.label})</span>
+        <span style={{ color: '#94a3b8' }}>{driver?.name ? driver.name : 'On the move'} • Live GPS</span>
+      </div>
+      <div ref={mapElRef} style={{ width: '100%', height: 185, background: '#0f172a' }} />
+    </div>
+  );
+}
 export default function App() {
   const [session, setSession] = useState(null);
   const [guestMode, setGuestMode] = useState(false);
@@ -76,46 +153,109 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [authName, setAuthName] = useState('');
   const [authPhone, setAuthPhone] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
   const [authMsg, setAuthMsg] = useState('');
-
+  const [authLoading, setAuthLoading] = useState(false);
   const [tab, setTab] = useState('order');
+  const [savedBanner, setSavedBanner] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [orders, setOrders] = useState([]);
+  const [driversMap, setDriversMap] = useState({});
+  const [ratings, setRatings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('swiftbuy_order_ratings') || '{}'); } catch { return {}; }
+  });
+  const [ratingDrafts, setRatingDrafts] = useState({});
   const [settings, setSettings] = useState(() => {
     try {
-      const saved = localStorage.getItem('swiftbuy_customer_settings');
-      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
-    } catch (_) {
-      return DEFAULT_SETTINGS;
+      const saved = JSON.parse(localStorage.getItem('swiftbuy_customer_settings') || '{}');
+      return {
+        country: saved.country || 'IE', customerName: saved.customerName || '',
+        customerPhone: saved.customerPhone || '', customerPhoto: saved.customerPhoto || '',
+        doorNumber: saved.doorNumber || '', streetRoad: saved.streetRoad || '',
+        postcode: saved.postcode || '', townCounty: saved.townCounty || 'Dundalk, Co. Louth',
+        paymentMethod: saved.paymentMethod === 'Revolut' ? 'Revolut' : 'Card',
+        soundEnabled: saved.soundEnabled !== false,
+      };
+    } catch {
+      return {
+        country: 'IE', customerName: '', customerPhone: '', customerPhoto: '',
+        doorNumber: '', streetRoad: '', postcode: '', townCounty: 'Dundalk, Co. Louth',
+        paymentMethod: 'Card', soundEnabled: true,
+      };
     }
   });
-  const [savedBanner, setSavedBanner] = useState(false);
-  const [orders, setOrders] = useState([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [lastOrder, setLastOrder] = useState(null);
-
-  const [form, setForm] = useState(() => ({
-    country: settings.country,
-    customerName: settings.customerName,
-    customerPhone: settings.customerPhone,
-    storeName: '',
-    itemsList: '',
-    estimatedGoodsCost: '',
-    deliveryFee: '5.00',
-    tipAmount: '2.00',
-    doorNumber: settings.doorNumber,
-    streetRoad: settings.streetRoad,
-    postcode: settings.postcode,
-    townCounty: settings.townCounty,
-    paymentMethod: settings.paymentMethod || 'Card',
-  }));
+  const [selectedShop, setSelectedShop] = useState('Tesco');
+  const [customShopName, setCustomShopName] = useState('');
+  const [cartItems, setCartItems] = useState([]);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemQty, setNewItemQty] = useState('1');
+  const [form, setForm] = useState({
+    country: settings.country, customerName: settings.customerName, customerPhone: settings.customerPhone,
+    storeName: 'Tesco', itemsList: '', estimatedGoodsCost: '', deliveryFee: '5.00', tipAmount: '2',
+    doorNumber: settings.doorNumber, streetRoad: settings.streetRoad, postcode: settings.postcode,
+    townCounty: settings.townCounty, paymentMethod: settings.paymentMethod === 'Revolut' ? 'Revolut' : 'Card',
+  });
+  const headerFileRef = useRef(null);
+  const curr = (form.country || settings.country) === 'UK' ? '£' : '€';
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data?.session) setSession(data.session);
-    });
+    supabase.auth.getSession().then(({ data }) => { if (data?.session) setSession(data.session); });
     const { data: listener } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => listener?.subscription?.unsubscribe();
   }, []);
+
+  const loadOrdersAndDrivers = async () => {
+    const phone = (settings.customerPhone || form.customerPhone || '').trim();
+    if (!phone) return;
+    try {
+      const { data: ordData } = await supabase.from('orders').select('*').eq('customer_phone', phone).order('created_at', { ascending: false }).limit(25);
+      if (ordData) {
+        setOrders(ordData);
+        const driverIds = [...new Set(ordData.map((o) => o.assigned_driver_id).filter(Boolean))];
+        if (driverIds.length > 0) {
+          const { data: drvData } = await supabase.from('drivers').select('*').in('id', driverIds);
+          if (drvData) {
+            const map = {};
+            drvData.forEach((d) => { map[d.id] = d; });
+            setDriversMap(map);
+          }
+        }
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    loadOrdersAndDrivers();
+    const interval = setInterval(loadOrdersAndDrivers, 8000);
+    const ch = supabase.channel('customer-live-tracking')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => loadOrdersAndDrivers())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, (payload) => {
+        if (payload.new?.id) setDriversMap((prev) => ({ ...prev, [payload.new.id]: payload.new }));
+      }).subscribe();
+    return () => { clearInterval(interval); supabase.removeChannel(ch); };
+  }, [settings.customerPhone, form.customerPhone]);
+
+  const handlePhotoUpload = (e) => {
+    const files = e.target.files;
+    if (!files || !files.length) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxSize = 240;
+        let w = img.width, h = img.height;
+        if (w > h && w > maxSize) { h = Math.round((h * maxSize) / w); w = maxSize; }
+        else if (h > maxSize) { w = Math.round((w * maxSize) / h); h = maxSize; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const next = { ...settings, customerPhoto: canvas.toDataURL('image/jpeg', 0.8) };
+        setSettings(next);
+        try { localStorage.setItem('swiftbuy_customer_settings', JSON.stringify(next)); } catch {}
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(files.item(0));
+  };
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -123,281 +263,205 @@ export default function App() {
     if (!email.trim() || !password) return setAuthMsg('Enter your email and password.');
     setAuthLoading(true);
     if (authMode === 'signup') {
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: { data: { full_name: authName.trim(), phone: authPhone.trim() } },
-      });
+      const { error } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { full_name: authName.trim(), phone: authPhone.trim() } } });
       setAuthLoading(false);
       if (error) return setAuthMsg(error.message);
-      const next = {
-        ...settings,
-        customerName: authName.trim() || settings.customerName,
-        customerPhone: authPhone.trim() || settings.customerPhone,
-      };
+      const next = { ...settings, customerName: authName.trim() || settings.customerName, customerPhone: authPhone.trim() || settings.customerPhone };
       localStorage.setItem('swiftbuy_customer_settings', JSON.stringify(next));
       setSettings(next);
       setForm((f) => ({ ...f, customerName: next.customerName, customerPhone: next.customerPhone }));
-      if (data?.session) setSession(data.session);
-      else { setAuthMsg('Account created! Now Log In with your email and password.'); setAuthMode('login'); }
     } else {
-      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       setAuthLoading(false);
       if (error) return setAuthMsg(error.message);
-      if (data?.session) setSession(data.session);
     }
   };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
-    setGuestMode(false);
-    setTab('order');
-  };
-
-  const curr = form.country === 'UK' ? '£' : '€';
-
-  const loadOrders = async () => {
-    const { data } = await supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(30);
-    if (data) setOrders(data);
-  };
-
-  useEffect(() => {
-    loadOrders();
-    const timer = setInterval(loadOrders, 10000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const handlePhotoUpload = (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const max = 250;
-        const scale = Math.min(max / img.width, max / img.height, 1);
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        setSettings((prev) => ({ ...prev, customerPhoto: canvas.toDataURL('image/jpeg', 0.8) }));
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  };
+  const handleLogout = async () => { await supabase.auth.signOut(); setSession(null); setGuestMode(false); };
 
   const saveSettings = (e) => {
     e.preventDefault();
-    localStorage.setItem('swiftbuy_customer_settings', JSON.stringify(settings));
-    setForm((prev) => ({
-      ...prev,
-      country: settings.country,
-      customerName: settings.customerName,
-      customerPhone: settings.customerPhone,
-      doorNumber: settings.doorNumber,
-      streetRoad: settings.streetRoad,
-      postcode: settings.postcode,
-      townCounty: settings.townCounty,
-      paymentMethod: settings.paymentMethod,
-    }));
-    if (settings.soundEnabled) playConfirmChime();
+    const cleanPay = settings.paymentMethod === 'Revolut' ? 'Revolut' : 'Card';
+    const next = { ...settings, paymentMethod: cleanPay };
+    localStorage.setItem('swiftbuy_customer_settings', JSON.stringify(next));
+    setSettings(next);
+    setForm((f) => ({ ...f, country: next.country, customerName: next.customerName, customerPhone: next.customerPhone, doorNumber: next.doorNumber, streetRoad: next.streetRoad, postcode: next.postcode, townCounty: next.townCounty, paymentMethod: cleanPay }));
+    if (next.soundEnabled) playConfirmChime();
     setSavedBanner(true);
     setTimeout(() => setSavedBanner(false), 2500);
   };
 
+  const addGroceryItem = (label, qty = 1) => {
+    const clean = label.trim();
+    if (!clean) return;
+    setCartItems((prev) => {
+      const idx = prev.findIndex((i) => i.name.toLowerCase() === clean.toLowerCase());
+      if (idx > -1) { const copy = [...prev]; copy[idx] = { ...copy[idx], qty: copy[idx].qty + Number(qty || 1) }; return copy; }
+      return [...prev, { name: clean, qty: Number(qty || 1) }];
+    });
+  };
+
+  const removeGroceryItem = (index) => setCartItems((prev) => prev.filter((_, i) => i !== index));
+  const activeStoreName = selectedShop === 'Custom' ? customShopName.trim() : selectedShop;
+  const combinedItemsText = [...cartItems.map((i) => `${i.qty}x ${i.name}`), form.itemsList.trim()].filter(Boolean).join(', ');
+
   const placeOrder = async (e) => {
     e.preventDefault();
-    if (!form.customerName || !form.customerPhone || !form.storeName || !form.itemsList || !form.streetRoad || !form.townCounty) {
-      return alert('Please fill in Store, Items, Name, Phone, Street, and Town/County.');
+    if (!form.customerName || !form.customerPhone || !activeStoreName || !combinedItemsText || !form.streetRoad || !form.townCounty) {
+      return alert('Please choose a Shop, add Grocery Items, and fill in Name, Phone, Street, and Town/County.');
     }
     setSubmitting(true);
     const dropCoords = await geocodePlace(form.streetRoad, form.postcode, form.townCounty, form.country);
     if (!dropCoords) { setSubmitting(false); return alert('Address or Postcode/Eircode not found.'); }
-    const storeCoords = (await geocodePlace(form.storeName, '', form.townCounty, form.country)) || dropCoords;
+    const storeCoords = (await geocodePlace(activeStoreName, '', form.townCounty, form.country)) || dropCoords;
     const dist = calcKm(storeCoords.lat, storeCoords.lng, dropCoords.lat, dropCoords.lng);
     if (dist > 7) { setSubmitting(false); return alert(`Store to delivery address is ${dist} km (max 7 km).`); }
-
     const id = 'ORD-' + Math.floor(1000 + Math.random() * 9000);
     const tip = parseFloat(form.tipAmount || '0');
-    const fee = parseFloat(form.deliveryFee || '5') + tip;
+    const totalFee = parseFloat(form.deliveryFee || '5') + tip;
     const payload = {
-      id,
-      customer_name: form.customerName.trim(),
-      customer_phone: form.customerPhone.trim(),
-      store_name: form.storeName.trim(),
-      items_list: `${form.itemsList.trim()} [Pay: ${form.paymentMethod}]`,
+      id, customer_name: form.customerName.trim(), customer_phone: form.customerPhone.trim(),
+      store_name: activeStoreName, items_list: `${combinedItemsText} [Pay: ${form.paymentMethod}]`,
       estimated_goods_cost: parseFloat(form.estimatedGoodsCost || '0'),
-      delivery_fee: fee,
-      tip_amount: tip,
-      vehicle: 'Any Vehicle',
-      door_number: form.doorNumber.trim(),
-      street_road: form.streetRoad.trim(),
-      postcode: form.postcode.trim().toUpperCase(),
-      region: form.country === 'UK' ? 'UK' : form.townCounty.trim(),
-      lat: dropCoords.lat,
-      lng: dropCoords.lng,
-      status: 'pending',
-      payout_status: 'unpaid',
-      distance_km: dist,
+      delivery_fee: totalFee, tip_amount: tip, vehicle: 'Any Vehicle',
+      door_number: form.doorNumber.trim(), street_road: form.streetRoad.trim(),
+      postcode: form.postcode.trim(), town_county: form.townCounty.trim(),
+      region: form.country, distance_km: dist, status: 'pending',
     };
-    if (settings.customerPhoto) payload.customer_photo = settings.customerPhoto;
-
     const { error } = await supabase.from('orders').insert(payload);
     setSubmitting(false);
-    if (error) return alert('Error: ' + error.message);
-
+    if (error) return alert('Could not place order: ' + error.message);
+    const nextSettings = { ...settings, customerName: form.customerName.trim(), customerPhone: form.customerPhone.trim(), doorNumber: form.doorNumber.trim(), streetRoad: form.streetRoad.trim(), postcode: form.postcode.trim(), townCounty: form.townCounty.trim() };
+    localStorage.setItem('swiftbuy_customer_settings', JSON.stringify(nextSettings));
+    setSettings(nextSettings);
     if (settings.soundEnabled) playConfirmChime();
-    setLastOrder({ id, dist, pay: form.paymentMethod });
-    setForm({ ...form, storeName: '', itemsList: '', estimatedGoodsCost: '' });
-    loadOrders();
+    setCartItems([]);
+    setForm((f) => ({ ...f, itemsList: '', estimatedGoodsCost: '' }));
+    setTab('orders');
+    loadOrdersAndDrivers();
   };
 
-  const myOrders = settings.customerPhone.trim()
-    ? orders.filter((o) => (o.customer_phone || '').includes(settings.customerPhone.trim()))
-    : orders.slice(0, 6);
+  const submitDriverRating = async (order) => {
+    const draft = ratingDrafts[order.id] || { stars: 5, comment: '' };
+    const stars = draft.stars || 5;
+    const updated = { ...ratings, [order.id]: { stars, comment: (draft.comment || '').trim() } };
+    setRatings(updated);
+    try { localStorage.setItem('swiftbuy_order_ratings', JSON.stringify(updated)); } catch {}
+    try { await supabase.from('orders').update({ driver_rating: stars, rating_comment: (draft.comment || '').trim() }).eq('id', order.id); } catch {}
+    if (settings.soundEnabled) playConfirmChime();
+  };
 
-  const card = { background: '#161f33', border: '1px solid #26324d', borderRadius: 14, padding: 16, marginBottom: 14 };
-  const input = { width: '100%', boxSizing: 'border-box', background: '#0b1120', border: '1px solid #2b3856', borderRadius: 10, padding: '11px 12px', color: '#f8fafc', fontSize: 14, marginBottom: 10 };
-  const btn = (bg) => ({ background: bg, color: '#fff', border: 'none', borderRadius: 10, padding: '8px 10px', whiteSpace: 'nowrap', fontWeight: 700, fontSize: 13, cursor: 'pointer' });
-  const PAY_OPTIONS = [{ id: 'Card', label: '💳 Card' }, { id: 'Cash', label: '💵 Cash' }, { id: 'Revolut', label: '🏦 Revolut' }];
+  const card = { background: '#131c31', border: '1px solid #23304d', borderRadius: 16, padding: 16, marginBottom: 14 };
+  const input = { width: '100%', boxSizing: 'border-box', background: '#0b1120', border: '1px solid #2b3856', borderRadius: 10, color: '#f8fafc', padding: '11px 12px', fontSize: 14, marginBottom: 10, outline: 'none' };
+  const btn = (bg) => ({ background: bg, color: '#fff', border: 'none', borderRadius: 10, padding: '9px 12px', fontWeight: 700, fontSize: 13, cursor: 'pointer' });
 
   if (!session && !guestMode) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0b1120', color: '#f8fafc', fontFamily: 'system-ui, sans-serif', padding: '28px 16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 24 }}>
-          <span style={{ fontSize: 28 }}>⚡</span>
-          <div style={{ lineHeight: 1.15 }}>
-            <div style={{ fontSize: 26, fontWeight: 800, color: '#38bdf8' }}>SwiftBuy</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981', letterSpacing: 0.5 }}>Groceries</div>
-          </div>
+      <div style={{ minHeight: '100vh', background: '#0b1120', color: '#f8fafc', fontFamily: 'system-ui, sans-serif', padding: 20, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center', marginBottom: 22 }}>
+          <div style={{ fontSize: 36 }}>🛒</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: '#38bdf8' }}>SwiftBuy</div>
+          <div style={{ fontSize: 13, color: '#10b981', fontWeight: 700 }}>Local Grocery Delivery</div>
         </div>
-        <div style={{ ...card, maxWidth: 420, margin: '0 auto' }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            <button type="button" onClick={() => { setAuthMode('login'); setAuthMsg(''); }} style={{ ...btn(authMode === 'login' ? '#2563eb' : '#1e293b'), flex: 1, padding: 11 }}>Log In</button>
-            <button type="button" onClick={() => { setAuthMode('signup'); setAuthMsg(''); }} style={{ ...btn(authMode === 'signup' ? '#10b981' : '#1e293b'), flex: 1, padding: 11 }}>Sign Up</button>
+        <div style={card}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            <button type="button" onClick={() => setAuthMode('login')} style={{ ...btn(authMode === 'login' ? '#2563eb' : '#1e293b'), flex: 1 }}>Log In</button>
+            <button type="button" onClick={() => setAuthMode('signup')} style={{ ...btn(authMode === 'signup' ? '#10b981' : '#1e293b'), flex: 1 }}>Sign Up</button>
           </div>
-          {authMsg && <div style={{ background: '#1e293b', border: '1px solid #38bdf8', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>{authMsg}</div>}
+          {authMsg && <div style={{ background: '#450a0a', border: '1px solid #dc2626', borderRadius: 8, padding: 9, fontSize: 12, marginBottom: 10 }}>{authMsg}</div>}
           <form onSubmit={handleAuth}>
-            {authMode === 'signup' && (
-              <>
-                <input style={input} placeholder="Full Name *" value={authName} onChange={(e) => setAuthName(e.target.value)} required />
-                <input style={input} placeholder="Mobile Phone *" value={authPhone} onChange={(e) => setAuthPhone(e.target.value)} required />
-              </>
-            )}
-            <input style={input} type="email" placeholder="Email *" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            <input style={input} type="password" placeholder="Password *" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            <button disabled={authLoading} type="submit" style={{ ...btn(authMode === 'signup' ? '#10b981' : '#2563eb'), width: '100%', padding: 13, fontSize: 15, marginBottom: 10 }}>
-              {authLoading ? 'Please wait...' : authMode === 'signup' ? 'Sign Up' : 'Log In'}
-            </button>
+            {authMode === 'signup' && (<><input style={input} placeholder="Full Name" value={authName} onChange={(e) => setAuthName(e.target.value)} required /><input style={input} placeholder="Mobile Phone" value={authPhone} onChange={(e) => setAuthPhone(e.target.value)} required /></>)}
+            <input style={input} type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input style={input} type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <button disabled={authLoading} type="submit" style={{ ...btn(authMode === 'signup' ? '#10b981' : '#2563eb'), width: '100%', padding: 13, fontSize: 15, marginBottom: 10 }}>{authLoading ? 'Please wait...' : authMode === 'signup' ? 'Sign Up' : 'Log In'}</button>
           </form>
           <button type="button" onClick={() => setGuestMode(true)} style={{ ...btn('#1e293b'), width: '100%', padding: 10, color: '#94a3b8' }}>Continue as Guest</button>
         </div>
       </div>
     );
   }
-
-  return (
-    <div style={{ minHeight: '100vh', background: '#0b1120', color: '#f8fafc', fontFamily: 'system-ui, sans-serif', padding: '14px 14px 40px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 22 }}>⚡</span>
-          <div style={{ lineHeight: 1.15 }}>
-            <div style={{ fontSize: 19, fontWeight: 800, color: '#38bdf8' }}>SwiftBuy</div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#10b981', letterSpacing: 0.4 }}>Groceries</div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => setTab('order')} style={btn(tab === 'order' ? '#10b981' : '#1e293b')}>+ Order</button>
-          <button onClick={() => setTab('orders')} style={btn(tab === 'orders' ? '#2563eb' : '#1e293b')}>Orders</button>
-          <button onClick={() => setTab('settings')} style={btn(tab === 'settings' ? '#8b5cf6' : '#1e293b')}>⚙ Settings</button>
-        </div>
-      </div>
-
-      {tab === 'order' && (
-        <div style={card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <h2 style={{ margin: 0, fontSize: 18 }}>Place a Delivery Order</h2>
-            <select value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value, townCounty: e.target.value === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth' })} style={{ background: '#0b1120', color: '#f8fafc', border: '1px solid #2b3856', borderRadius: 8, padding: '6px 8px', fontSize: 12 }}>
-              <option value="IE">🇮🇪 IE (€)</option>
-              <option value="UK">🇬🇧 UK (£)</option>
-            </select>
-          </div>
-          {lastOrder && <div style={{ background: '#064e3b', border: '1px solid #10b981', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>✅ Order <b>{lastOrder.id}</b> placed ({lastOrder.pay})!</div>}
-          <form onSubmit={placeOrder}>
-            <input style={input} placeholder="Store Name * (e.g. Tesco, Dunnes, Lidl)" value={form.storeName} onChange={(e) => setForm({ ...form, storeName: e.target.value })} />
-            <textarea style={{ ...input, minHeight: 74, resize: 'vertical' }} placeholder="Shopping List / Items *" value={form.itemsList} onChange={(e) => setForm({ ...form, itemsList: e.target.value })} />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input style={input} type="number" step="0.01" placeholder={`Est. Goods (${curr})`} value={form.estimatedGoodsCost} onChange={(e) => setForm({ ...form, estimatedGoodsCost: e.target.value })} />
-              <input style={input} type="number" step="0.50" placeholder={`Tip (${curr})`} value={form.tipAmount} onChange={(e) => setForm({ ...form, tipAmount: e.target.value })} />
-            </div>
-            <input style={input} placeholder="Your Full Name *" value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} />
-            <input style={input} placeholder="Mobile Phone *" value={form.customerPhone} onChange={(e) => setForm({ ...form, customerPhone: e.target.value })} />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input style={{ ...input, width: '36%' }} placeholder="Door/Apt" value={form.doorNumber} onChange={(e) => setForm({ ...form, doorNumber: e.target.value })} />
-              <input style={input} placeholder="Street / Road *" value={form.streetRoad} onChange={(e) => setForm({ ...form, streetRoad: e.target.value })} />
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input style={input} placeholder={form.country === 'UK' ? 'UK Postcode' : 'Eircode (e.g. A91 P592)'} value={form.postcode} onChange={(e) => setForm({ ...form, postcode: e.target.value })} />
-              <input style={input} placeholder="Town & County *" value={form.townCounty} onChange={(e) => setForm({ ...form, townCounty: e.target.value })} />
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              {PAY_OPTIONS.map((p) => (
-                <button key={p.id} type="button" onClick={() => setForm({ ...form, paymentMethod: p.id })} style={{ ...btn(form.paymentMethod === p.id ? '#2563eb' : '#0b1120'), flex: 1, padding: '10px 6px', border: form.paymentMethod === p.id ? '1px solid #38bdf8' : '1px solid #2b3856' }}>
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            <button disabled={submitting} type="submit" style={{ ...btn('#10b981'), width: '100%', padding: 13, fontSize: 15 }}>
-              {submitting ? 'Calculating GPS Distance...' : `Submit Order • ${form.paymentMethod} (${curr}${(Number(form.deliveryFee || 0) + Number(form.tipAmount || 0)).toFixed(2)})`}
-            </button>
-          </form>
-        </div>
-      )}
-
       {tab === 'orders' && (
         <div>
-          <h3 style={{ margin: '0 0 12px', fontSize: 17 }}>{settings.customerPhone ? `Orders for ${settings.customerPhone}` : 'Recent Orders'}</h3>
-          {myOrders.map((o) => (
-            <div key={o.id} style={card}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <b style={{ fontSize: 15 }}>{o.store_name}</b>
-                <span style={{ color: o.status === 'delivered' ? '#10b981' : '#38bdf8', fontWeight: 700, fontSize: 13 }}>{o.status}</span>
-              </div>
-              <div style={{ fontSize: 13, marginBottom: 6 }}>{o.items_list}</div>
-              <div style={{ fontSize: 12, color: '#9ca3af' }}>{o.id} • {o.door_number} {o.street_road}, {o.postcode}</div>
-            </div>
-          ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <h2 style={{ margin: 0, fontSize: 18 }}>My Orders & Live Tracking</h2>
+            <button type="button" onClick={loadOrdersAndDrivers} style={btn('#1e293b')}>↻ Refresh</button>
+          </div>
+          {orders.length === 0 ? (
+            <div style={card}><div style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', padding: 16 }}>No orders found for {settings.customerPhone || 'your phone number'} yet.</div></div>
+          ) : (
+            orders.map((o) => {
+              const assignedDriver = o.assigned_driver_id ? driversMap[o.assigned_driver_id] : null;
+              const isDelivered = String(o.status || '').toLowerCase() === 'delivered';
+              const savedRating = ratings[o.id];
+              const draft = ratingDrafts[o.id] || { stars: 5, comment: '' };
+              return (
+                <div key={o.id} style={card}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <b style={{ fontSize: 15 }}>{o.store_name}</b>
+                    <span style={{ color: isDelivered ? '#10b981' : '#38bdf8', fontWeight: 700, fontSize: 13, textTransform: 'uppercase' }}>{o.status}</span>
+                  </div>
+                  <div style={{ fontSize: 13, marginBottom: 6 }}>{o.items_list}</div>
+                  <div style={{ fontSize: 12, color: '#9ca3af' }}>{o.id} • {o.door_number} {o.street_road}, {o.postcode}</div>
+                  {!isDelivered && assignedDriver && <LiveDriverMap driver={assignedDriver} />}
+                  {!isDelivered && !assignedDriver && (
+                    <div style={{ marginTop: 10, background: '#0b1120', border: '1px solid #2b3856', borderRadius: 10, padding: 10, fontSize: 12, color: '#94a3b8' }}>
+                      ⏳ Waiting for a nearby driver (🚴 Bike, 🏍️ Motorcycle, or 🚗 Car) to accept your order...
+                    </div>
+                  )}
+                  {isDelivered && (
+                    <div style={{ marginTop: 12, background: '#0b1120', border: '1px solid #2b3856', borderRadius: 12, padding: 12 }}>
+                      {savedRating ? (
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24' }}>Your Driver Rating: {'★'.repeat(savedRating.stars)}{'☆'.repeat(5 - savedRating.stars)} ({savedRating.stars}/5)</div>
+                          {savedRating.comment && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>"{savedRating.comment}"</div>}
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Rate Your Driver Delivery</div>
+                          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <button key={star} type="button" onClick={() => setRatingDrafts((prev) => ({ ...prev, [o.id]: { ...draft, stars: star } }))} style={{ background: 'transparent', border: 'none', fontSize: 24, color: star <= draft.stars ? '#fbbf24' : '#475569', cursor: 'pointer', padding: 0 }}>★</button>
+                            ))}
+                          </div>
+                          <input style={{ ...input, marginBottom: 8 }} placeholder="Leave a quick note for your driver (optional)" value={draft.comment} onChange={(e) => setRatingDrafts((prev) => ({ ...prev, [o.id]: { ...draft, comment: e.target.value } }))} />
+                          <button type="button" onClick={() => submitDriverRating(o)} style={btn('#10b981')}>Submit Rating</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
       )}
-
       {tab === 'settings' && (
         <div style={card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <h2 style={{ margin: 0, fontSize: 18 }}>Settings</h2>
+            <h2 style={{ margin: 0, fontSize: 18 }}>Profile & Settings</h2>
             <span style={{ fontSize: 11, color: '#38bdf8' }}>{session?.user?.email || 'Guest'}</span>
           </div>
-          {savedBanner && <div style={{ background: '#064e3b', border: '1px solid #10b981', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>✅ Settings saved!</div>}
+          {savedBanner && <div style={{ background: '#064e3b', border: '1px solid #10b981', borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 13 }}>✅ Profile & Settings saved!</div>}
           <form onSubmit={saveSettings}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, background: '#0b1120', padding: 10, borderRadius: 10, border: '1px solid #2b3856' }}>
-              {settings.customerPhoto ? <img src={settings.customerPhoto} alt="Profile" style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', border: '2px solid #10b981' }} /> : <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>👤</div>}
+              {settings.customerPhoto ? <img src={settings.customerPhoto} alt="Profile" style={{ width: 58, height: 58, borderRadius: '50%', objectFit: 'cover', border: '2px solid #10b981' }} /> : <div style={{ width: 58, height: 58, borderRadius: '50%', background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>👤</div>}
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Profile Photo (Shown to Driver)</div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Customer Profile Photo</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>Choose any picture from gallery or camera</div>
                 <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ fontSize: 12, color: '#9ca3af' }} />
               </div>
             </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input style={input} placeholder="Default Name" value={settings.customerName} onChange={(e) => setSettings({ ...settings, customerName: e.target.value })} />
+              <input style={input} placeholder="Default Phone" value={settings.customerPhone} onChange={(e) => setSettings({ ...settings, customerPhone: e.target.value })} />
+            </div>
             <select style={input} value={settings.paymentMethod} onChange={(e) => setSettings({ ...settings, paymentMethod: e.target.value })}>
               <option value="Card">💳 Card</option>
-              <option value="Cash">💵 Cash</option>
-              <option value="Revolut">🏦 Revolut</option>
+              <option value="Revolut">📱 Revolut</option>
             </select>
             <select style={input} value={settings.country} onChange={(e) => setSettings({ ...settings, country: e.target.value, townCounty: e.target.value === 'UK' ? 'Newry, Co. Down' : 'Dundalk, Co. Louth' })}>
-              <option value="IE">🇮🇪 Ireland (€ EUR)</option>
-              <option value="UK">🇬🇧 Northern Ireland / UK (£ GBP)</option>
+              <option value="IE">🇮🇪 Ireland (€)</option>
+              <option value="UK">🇬🇧 UK (£)</option>
             </select>
-            <input style={input} placeholder="Default Full Name" value={settings.customerName} onChange={(e) => setSettings({ ...settings, customerName: e.target.value })} />
-            <input style={input} placeholder="Default Mobile Phone" value={settings.customerPhone} onChange={(e) => setSettings({ ...settings, customerPhone: e.target.value })} />
             <div style={{ display: 'flex', gap: 8 }}>
               <input style={{ ...input, width: '36%' }} placeholder="Door/Apt" value={settings.doorNumber} onChange={(e) => setSettings({ ...settings, doorNumber: e.target.value })} />
               <input style={input} placeholder="Default Street / Road" value={settings.streetRoad} onChange={(e) => setSettings({ ...settings, streetRoad: e.target.value })} />
@@ -411,9 +475,7 @@ export default function App() {
               <input type="checkbox" checked={settings.soundEnabled} onChange={(e) => setSettings({ ...settings, soundEnabled: e.target.checked })} />
             </label>
             <button type="submit" style={{ ...btn('#10b981'), width: '100%', padding: 12, fontSize: 14, marginBottom: 10 }}>Save Settings</button>
-            <button type="button" onClick={handleLogout} style={{ ...btn('#dc2626'), width: '100%', padding: 12, fontSize: 14 }}>
-              Log Out
-            </button>
+            <button type="button" onClick={handleLogout} style={{ ...btn('#dc2626'), width: '100%', padding: 12, fontSize: 14 }}>Log Out</button>
           </form>
         </div>
       )}
